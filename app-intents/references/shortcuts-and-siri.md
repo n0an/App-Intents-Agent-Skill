@@ -53,7 +53,9 @@ There's no way around this - never hard-code the name string. The interpolation 
 
 ## Phrase coverage
 
-Phrases are exact-match. Siri does not paraphrase or interpret loosely, so provide multiple wordings:
+On iOS 17+, Siri has **flexible matching** - a build-time semantic similarity index matches close paraphrases ("Tell me the summary of my groceries list" → "Summarize my groceries list"). It's on by default when you build with Xcode 15+; disable via the `Enable App Shortcuts Flexible Matching` build setting if you need exact-match only.
+
+Even with flexible matching, provide multiple wordings. The index matches meaning; providing varied phrasings makes it more likely to converge on your intent for ambiguous speech.
 
 ```swift
 AppShortcut(
@@ -136,6 +138,48 @@ Call it:
 
 Without this, Siri-suggested phrases can point at stale entity names or offer deleted items.
 
+### Negative phrases (iOS 17+)
+
+When flexible matching produces false positives, add phrases that should **not** trigger the shortcut:
+
+```swift
+AppShortcut(
+    intent: DeleteFolderIntent(),
+    phrases: [
+        "Delete folder in \(.applicationName)"
+    ],
+    negativePhrases: [
+        "Delete folder permanently in \(.applicationName)",
+        "Empty trash in \(.applicationName)"
+    ],
+    shortTitle: "Delete Folder",
+    systemImageName: "trash"
+)
+```
+
+Catches common near-matches the semantic index would otherwise flag. Keep the list short - each negative phrase costs one of your 1,000 total phrase slots.
+
+## `AppShortcuts` String Catalog
+
+Localizing Swift-declared phrases used to be constrained: each locale had to have the same number of phrases as the Swift source. iOS 17+ adds a dedicated **AppShortcuts** String Catalog type that lifts this limit - different locales can have different phrasing counts, and new phrases can be added per-locale without touching Swift code.
+
+Xcode's migration assistant converts existing `AppShortcuts.strings` files to the catalog format. All new projects should start with the catalog.
+
+## Previewing shortcuts in Xcode
+
+Xcode 15+ (macOS Sonoma) has `Product > App Shortcuts Preview`, a tool that lets you test phrase matching and flexible-match behavior without rebuilding, speaking to Siri, or leaving the IDE. It supports switching locales, so you can verify translations in-place.
+
+Use it heavily when tuning phrases - it's far faster than the simulator round-trip.
+
+## Accent colors for Spotlight and Shortcuts
+
+iOS 17+ lets you style the app's appearance in Spotlight cards and the Shortcuts library through two `Info.plist` keys:
+
+- `NSAppIconActionTintColorName` - primary tint, applied to icons and buttons.
+- `NSAppIconComplementingColorNames` - array of up to two complementary colors the system can layer into backgrounds.
+
+Both values reference color names from the app's asset catalog. The system picks which complementing color to use based on context.
+
 ## `shortcutTileColor`
 
 ```swift
@@ -185,6 +229,27 @@ On a real device, saying "what can I do here?" to Siri asks the OS to scan the c
 ## Presenting intent parameters
 
 `AppShortcut` takes an optional `parameterPresentation` to change how Shortcuts renders parameter pickers for that specific phrase. Use it to pre-fill parameter labels or example values. It's sparsely documented; reach for it only when default rendering is insufficient.
+
+## Platform-specific behavior
+
+### watchOS
+
+App Shortcuts from a paired iPhone do **not** sync to Apple Watch. The watchOS app must be installed separately and declare its own `AppShortcutsProvider`. Flexible Matching is unavailable on Watch - phrases are exact-match. iOS 16+ / watchOS 9.2+ for basic support.
+
+### HomePod
+
+iOS 16.2+ / HomePod Software 16.2+. Voice-only - there's no screen, so any result your intent returns is spoken. The `IntentDialog(full:supporting:)` pattern matters especially here:
+
+```swift
+let dialog = IntentDialog(
+    full: "You have 3 reminders due this afternoon: call Alex, buy milk, pay electric bill.",
+    supporting: "3 reminders due today."
+)
+```
+
+HomePod speaks the `full` string; screen-capable devices render the `supporting` string alongside any snippet. Always provide both when the intent might run on HomePod.
+
+Voice-only devices won't launch the app, even if `openAppWhenRun = true`. Intents that *must* open the app to succeed will fail audibly on HomePod - guard against this or document the limitation.
 
 ## What NOT to register
 

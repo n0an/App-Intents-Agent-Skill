@@ -613,6 +613,113 @@ extension PhotoEntity: Transferable {
 
 For schema-adopted entities (e.g., `.photos.asset`), `Transferable` conformance is practically required - several consuming features assume it.
 
+## Mutating app state inside `SnippetIntent.perform()`
+
+iOS 19's snippet refresh cycle calls the snippet intent's `perform()` multiple times per user interaction - on first show, after each button tap, on dark-mode toggle, on `SnippetIntent.reload()`. If `perform()` has side effects, they run repeatedly.
+
+```swift
+// WRONG - logs an analytics event every time the snippet re-renders
+struct DashboardSnippetIntent: SnippetIntent {
+    @Dependency var analytics: Analytics
+    func perform() async throws -> some IntentResult & ShowsSnippetView {
+        analytics.log("dashboard_viewed")   // fires on every refresh, not just opens
+        return .result(view: DashboardView(data: store.current))
+    }
+}
+
+// CORRECT - pure view construction; side effects belong in the button's intent
+struct DashboardSnippetIntent: SnippetIntent {
+    func perform() async throws -> some IntentResult & ShowsSnippetView {
+        .result(view: DashboardView(data: store.current))
+    }
+}
+```
+
+Snippet-intent `perform()` should read state, assemble the view, and return. Writes and side effects live in the *button's* intent.
+
+## Expensive work inside `SnippetIntent.perform()`
+
+For the same reason, slow operations make the snippet feel unresponsive - users see a spinner instead of content. Defer network calls, model inference, and heavy database aggregates; surface cached values and trigger refresh off-path.
+
+```swift
+// WRONG - network call on every refresh stalls the overlay
+func perform() async throws -> some IntentResult & ShowsSnippetView {
+    let latest = try await api.fetchDashboard()
+    return .result(view: DashboardView(data: latest))
+}
+
+// CORRECT - read cache, kick off refresh in background
+func perform() async throws -> some IntentResult & ShowsSnippetView {
+    Task.detached { try await api.refreshDashboardCache() }
+    return .result(view: DashboardView(data: store.cachedDashboard))
+}
+```
+
+## Intent-per-variant instead of a flexible intent
+
+When actions differ only in a parameter value, don't split them into separate intents:
+
+```swift
+// WRONG
+struct CreateWorkReminderIntent: AppIntent { ... }
+struct CreatePersonalReminderIntent: AppIntent { ... }
+struct CreateShoppingReminderIntent: AppIntent { ... }
+
+// CORRECT
+struct CreateReminderIntent: AppIntent {
+    @Parameter var list: ReminderListEntity
+    @Parameter var text: String
+    @Parameter var dueDate: Date?
+    ...
+}
+```
+
+One flexible intent composes better in Shortcuts and covers more Siri phrasings. Reserve separate intents for genuinely distinct actions.
+
+## Exposing UI-level actions as intents
+
+Intents should represent tasks the user cares about, not UI buttons they might tap:
+
+```swift
+// WRONG - tied to a specific UI layout
+struct TapCancelButtonIntent: AppIntent { ... }
+
+// CORRECT - represents the real task
+struct DiscardDraftIntent: AppIntent { ... }
+```
+
+UI-element intents break the moment you redesign the screen; task-level intents survive refactors and translate cleanly into Siri phrases and Shortcuts actions.
+
+## Missing `perform()` breaks Spotlight on Mac
+
+On macOS, an intent with no `perform()` (e.g., `URLRepresentableIntent` that relies purely on URL routing) does not surface in Spotlight search results - the Mac's search indexer skips intents that can't be directly invoked.
+
+If macOS Spotlight reachability matters, implement a `perform()` that calls the same navigator your universal-link handler does. On iOS, leaving `perform()` absent is fine.
+
+## App-launching intents hidden from Spotlight
+
+Only intents that can complete *without* launching your app are eligible to appear in Spotlight's shortcut suggestions. Intents with `openAppWhenRun = true` (or an equivalent foreground continuation) won't show there.
+
+Design a mix: lightweight read-only intents (get count, show status) that Spotlight can surface; deeper mutation intents that open the app for full interaction. Don't expect Spotlight to be the primary discovery path for app-opening actions.
+
+## Parameterized shortcut phrases shown before first launch
+
+Shortcut phrases that interpolate entity parameters (`"Open \(\.$folder) in \(.applicationName)"`) don't appear in Spotlight or the Shortcuts home until the app has launched at least once and `updateAppShortcutParameters()` has populated the entity list.
+
+Include at least one non-parameterized phrase for every App Shortcut so users see and can invoke it immediately on install:
+
+```swift
+AppShortcut(
+    intent: OpenFolderIntent(),
+    phrases: [
+        "Open folder in \(.applicationName)",                  // works on first launch
+        "Open \(\.$target) in \(.applicationName)"             // available after populate
+    ],
+    shortTitle: "Open Folder",
+    systemImageName: "folder"
+)
+```
+
 ## Spotlight: mutating `CSSearchableItemAttributeSet` from scratch
 
 Start from `defaultAttributeSet` - the system fills in type identifiers, display metadata, and a bunch of defaults you'd otherwise forget.

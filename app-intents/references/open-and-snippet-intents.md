@@ -337,6 +337,39 @@ For larger shared state, swap `UserDefaults` for a `ModelContainer` whose `Model
 
 Snippets rendered by Siri do not live-update when the user toggles dark mode *while the snippet is on screen*. Dismissing and triggering again picks up the current appearance correctly.
 
+## Snippet design rules
+
+Snippets are quick-glance overlays. Apple's design guidance (WWDC25 #281):
+
+- **Height ceiling: 340 points.** Content beyond this requires scrolling, which breaks the glanceable-overlay model. Link to the full app for deep content.
+- **Type size above system default.** Snippets are viewed from across the room as often as up close; raise the base size.
+- **Consistent margins.** Use `ContainerRelativeShape` for backgrounds so margins adapt to the rounded-rectangle container the system draws around snippets.
+- **Contrast beyond standard ratios.** Snippets overlay arbitrary backgrounds; ordinary 4.5:1 text-to-background contrast isn't enough. Test at reading distance.
+- **Understandable without dialog.** The snippet should convey its meaning on screen alone. Treat dialog as supplementary audio, not the primary channel. Don't duplicate every snippet label in the dialog.
+
+### Result vs confirmation snippet types
+
+Two distinct behaviors, each with a standard button pattern:
+
+- **Result snippet.** Shown after the intent has already completed. One button: **Done**. Use for reporting status (an order was placed, a message was sent).
+- **Confirmation snippet.** Shown *before* the intent runs. Needs an action-verb button - **Order**, **Send**, **Post**, **Play**, **Delete**, **Confirm**, or a custom verb. The user's tap is what triggers the real work.
+
+```swift
+// Confirmation flow
+try await requestConfirmation(
+    actionName: .order,   // "Order" button label
+    snippetIntent: CoffeeRequestSnippetIntent(order: order)
+)
+try await orderService.submit(order)
+
+// Result after confirmation
+return .result(
+    snippetIntent: CoffeeResultSnippetIntent(order: order)
+)
+```
+
+`actionName` accepts standard verbs (`.order`, `.send`, `.play`, `.delete`, `.confirm`, `.search`) or a custom string; pick the standard verb when one fits so users see consistent language across apps.
+
 ## Picking the right shape
 
 | Situation | Pick |
@@ -363,6 +396,67 @@ When a user taps an app entity in Spotlight results, the system looks for an `Op
 ...tapping the Spotlight result routes through your `OpenIntent` automatically. No additional wiring.
 
 In simulator this sometimes takes a few minutes after first launch before it starts working reliably - the index builds up in the background. On device it's generally faster.
+
+## Returning `OpenURLIntent` to open the app post-action
+
+When an intent *creates* something (a new note, a scanned document, a booked reservation) and you want the user to land in the app viewing the result, return an `OpenURLIntent` built from the new entity's URL representation:
+
+```swift
+struct CreateNoteIntent: AppIntent {
+    static let title: LocalizedStringResource = "Create note"
+
+    @Parameter var body: String
+    @Dependency var store: DataStore
+
+    func perform() async throws -> some IntentResult & ReturnsValue<NoteEntity> & OpensIntent {
+        let note = try store.createNote(body: body)
+        return .result(
+            value: note.entity,
+            opensIntent: OpenURLIntent(URLRepresentation(entity: note.entity))
+        )
+    }
+}
+```
+
+The return shape `ReturnsValue<T> & OpensIntent` both hands back the created entity (chainable in Shortcuts) *and* tells the system to open the app to that entity's universal link. Pairs naturally with `URLRepresentableEntity`. iOS 18+.
+
+## iOS 19 snippet interactivity
+
+`SnippetIntent` became the primary interactive-snippet mechanism at iOS 19 (WWDC25 #275). Two refinements worth knowing:
+
+### Interactive refresh cycle
+
+When a button inside a snippet view fires another `AppIntent`, the system:
+
+1. Runs the button's intent to completion.
+2. **Re-fetches all `@Parameter` values** of the owning snippet intent (for entity parameters, this re-runs `entities(for:)` on the query).
+3. Calls the snippet intent's `perform()` again to re-render.
+4. Animates the diff in the displayed view.
+
+This means the snippet intent's `perform()` is **called multiple times** during a single user interaction - once initially, once after each button press, potentially once on appearance changes. It must be pure: fetch state, build the view, return. Do not mutate app state inside `SnippetIntent.perform()`.
+
+### Manual refresh: `SnippetIntent.reload()`
+
+For long-running work that completes asynchronously, you can force a refresh from outside the snippet:
+
+```swift
+// Somewhere in the app, when new data arrives
+MyDashboardSnippetIntent.reload()
+```
+
+The system re-invokes `perform()` on the current snippet if it's still visible. Useful for push-notification-driven dashboards or intents that poll a background process.
+
+### SwiftUI animation
+
+Snippet view mutations animate automatically if you use SwiftUI's standard transition modifiers:
+
+```swift
+Text(store.formattedAmount())
+    .contentTransition(.numericText())
+
+VStack { ... }
+    .animation(.easeInOut, value: store.currentState)
+```
 
 ## `URLRepresentableEntity` + `URLRepresentableIntent`
 
@@ -426,6 +520,75 @@ extension OpenLandmarkIntent: TargetContentProvidingIntent {}
 ```
 
 Gate on `#if os(iOS)` - the protocol is iOS-only. Don't skip the conformance when you want visual intelligence to be able to land users inside your app; without it, the system treats the intent as a side-effect action instead of a navigation endpoint.
+
+## Widget configuration intents
+
+Widgets that need user configuration (pick a calendar, pick a folder, pick a stock ticker) back their configuration with a `WidgetConfigurationIntent`:
+
+```swift
+struct FolderWidgetIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Choose folder"
+
+    @Parameter(title: "Folder")
+    var folder: FolderEntity?
+}
+```
+
+Pair with WidgetKit's `AppIntentConfiguration` (iOS 17+, replaces `IntentConfiguration`):
+
+```swift
+struct FolderWidget: Widget {
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: "FolderWidget", intent: FolderWidgetIntent.self, provider: FolderProvider()) { entry in
+            FolderWidgetView(entry: entry)
+        }
+    }
+}
+```
+
+The `WidgetConfigurationIntent` is an empty-conformance marker - no `perform()`. Parameter queries populate the widget's configuration picker.
+
+## Control configuration intents
+
+iOS 18's Control Center controls use `ControlConfigurationIntent` the same way. An intent can be both the control's configuration *and* the action it performs on tap:
+
+```swift
+struct ToggleFocusIntent: ControlConfigurationIntent, AppIntent {
+    static let title: LocalizedStringResource = "Toggle focus"
+
+    @Parameter var mode: FocusMode
+
+    func perform() async throws -> some IntentResult {
+        try await focusManager.toggle(mode)
+        return .result()
+    }
+}
+```
+
+The system uses the `@Parameter` for the configuration picker when the user adds the control; when the control is tapped, `perform()` runs with that configured value.
+
+## Proactive suggestions: `RelevantIntentManager`
+
+iOS 17+. The Smart Stack (and watchOS complications) can surface your widgets at contextually relevant times. Declare when:
+
+```swift
+import AppIntents
+
+let relevant = RelevantIntent(
+    FolderWidgetIntent(folder: morningRoutineFolder),
+    widgetKind: "FolderWidget",
+    relevance: [
+        .timeRange(morning),
+        .location(home)
+    ]
+)
+
+try await RelevantIntentManager.shared.updateRelevantIntents([relevant])
+```
+
+Provide an intent instance, the widget kind string, and one or more `RelevantContext` predicates (time, location, focus, heart rate for Watch, ...). The system picks among registered intents when building the Smart Stack. Replaces the older `INInteraction` / `INDailyRoutineRelevanceProvider` APIs with a Swift-friendly surface.
+
+Call `updateRelevantIntents` whenever the user's routine changes materially; the system caches the submissions.
 
 ## Multi-step interactive confirmation with snippet intents
 

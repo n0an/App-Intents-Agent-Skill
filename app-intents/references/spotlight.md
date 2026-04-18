@@ -105,6 +105,8 @@ Cancelling the previous task before sleeping means typing fast produces one inde
 
 If your content is effectively static (curated catalogue, preset library), index everything once in `App.init()` or on first launch and don't bother with per-change tracking.
 
+Apple's explicit recommendation (WWDC24) is to perform the initial index inside `App.init()` - this guarantees indexing runs before any intent, widget, or Siri invocation can surface a stale or missing entity. For mutable content, pair the startup index with per-change updates (see the previous two strategies).
+
 ## Mapping properties to indexing keys: `@ComputedProperty(indexingKey:)`
 
 If you've already declared entity computed properties with `@ComputedProperty` (see `entities.md`), you can map them directly to Spotlight attribute-set keys without writing any `attributeSet` code:

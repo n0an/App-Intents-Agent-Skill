@@ -160,6 +160,10 @@ var crowdStatus: Int {
 
 The system only materializes the value when a consumer (a shortcut, Siri, Spotlight) actually needs it. Use `@DeferredProperty` when the value involves a network round-trip, model inference, or an expensive database aggregation.
 
+### Synonyms invalidate shortcut caches
+
+When the user-visible titles of entities change - through a rename, through adding entries, or through changing `displayRepresentation.synonyms` - call `YourShortcutsProvider.updateAppShortcutParameters()` to let the system refresh the suggestion cache. See `shortcuts-and-siri.md`.
+
 ## Pluralized type name and synonyms
 
 `TypeDisplayRepresentation` takes an optional `numericFormat` for pluralization, and `DisplayRepresentation` takes `synonyms` so Siri accepts alternate phrasings:
@@ -214,6 +218,61 @@ No `id`, no `defaultQuery` - Shortcuts won't try to enumerate or look them up. B
 
 Use `TransientAppEntity` for return data that's computed on the fly and exists only for that intent invocation.
 
+## File-backed entities: `FileEntity`
+
+For entities that *are* files (a scanned document, a recorded voice memo, an image your app produced), `FileEntity` replaces the awkward "entity that exports as a file via Transferable" pattern. iOS 18+.
+
+```swift
+import AppIntents
+import UniformTypeIdentifiers
+
+struct ScanEntity: FileEntity {
+    static let supportedContentTypes: [UTType] = [.pdf, .png]
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Scan"
+    static let defaultQuery = ScanEntityQuery()
+
+    var id: FileEntityIdentifier   // built from a URL or a draft identifier
+    var title: String
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(title)")
+    }
+}
+```
+
+`FileEntityIdentifier` wraps either a concrete file URL (with bookmark data for persistence) or a *draft identifier* for files that don't yet exist. The system's file-handling machinery can then act on the entity directly - "rotate this scan", "attach this scan to a message" - without Transferable conversion.
+
+Use `FileEntity` when the thing *is* a file. Use `AppEntity` with `Transferable` when the thing is a domain object that *has* a file representation (among others).
+
+## `@UnionValue` parameters: accept multiple entity types
+
+When a parameter could reasonably be any of several entity types (a route *or* a saved location; an article *or* a bookmark), declare the union as an enum:
+
+```swift
+@UnionValue
+enum DestinationValue {
+    case route(RouteEntity)
+    case savedLocation(SavedLocationEntity)
+}
+
+struct NavigateIntent: AppIntent {
+    @Parameter var destination: DestinationValue
+
+    func perform() async throws -> some IntentResult {
+        switch destination {
+        case .route(let r):         try await navigator.go(to: r)
+        case .savedLocation(let s): try await navigator.go(to: s)
+        }
+        return .result()
+    }
+}
+```
+
+Each `@UnionValue` case has exactly one associated value, and that value is a distinct type. Shortcuts shows a combined picker; Siri asks a disambiguation question. Preferable to writing two sibling intents that differ only in the parameter type.
+
+Same macro is used for `IntentValueQuery` results (see `assistant-schemas.md` for visual-intelligence examples).
+
 ## Transferable entities
 
 Conforming an `AppEntity` to `Transferable` makes it sharable with other apps and forwardable to Siri / Apple Intelligence as concrete data (image, PDF, text, RTF):
@@ -253,6 +312,24 @@ var displayRepresentation: DisplayRepresentation {
         image: .init(systemName: "doc.text")
     )
 }
+```
+
+### Thumbnail images
+
+iOS 17+ adds an image field that accepts multiple backing sources:
+
+```swift
+// Bundled image resource
+DisplayRepresentation(title: "\(name)", image: DisplayRepresentation.Image(named: "trail-hero"))
+
+// System image
+DisplayRepresentation(title: "\(name)", image: .init(systemName: "doc.text"))
+
+// Remote URL (system fetches and caches)
+DisplayRepresentation(title: "\(name)", image: DisplayRepresentation.Image(url: thumbnailURL))
+
+// Raw data (useful when the thumbnail is derived at runtime)
+DisplayRepresentation(title: "\(name)", image: .init(data: try entity.thumbnailData))
 ```
 
 Variants:

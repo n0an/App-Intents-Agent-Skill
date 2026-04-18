@@ -198,6 +198,110 @@ guard store.isAuthenticated else {
 
 Don't present an auth sheet from an intent - you'll strand the user in Siri or Shortcuts.
 
-## Shared framework extraction (iOS 18+)
+## Shared framework extraction
 
-For larger apps with many intents, split intents into their own framework target. `@Dependency` resolution works across frameworks in the same app as long as the dependency is registered in `App.init()`.
+Larger apps split intents into a separate target. `@Dependency` resolution works across frameworks as long as the dependency is registered in `App.init()`. Three distribution mechanisms, depending on iOS minimum:
+
+### `AppIntentsPackage` protocol (iOS 17+)
+
+Declare the metadata-exporting target with `AppIntentsPackage` so the compiler re-exports its intents recursively into the main app:
+
+```swift
+// In the intents framework
+import AppIntents
+
+public struct ReaderIntentsPackage: AppIntentsPackage { }
+```
+
+```swift
+// In the main app
+import AppIntents
+import ReaderIntents   // the framework
+
+struct ReaderApp: App, AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] {
+        [ReaderIntentsPackage.self]
+    }
+    ...
+}
+```
+
+The main app's package lists the frameworks whose intents should be registered. Supports dynamic frameworks at iOS 17+.
+
+### Swift Packages and static libraries (iOS 19+)
+
+iOS 19 extended `AppIntentsPackage` support to Swift Packages and static library targets. Same protocol, same `includedPackages` declaration. Useful when you want to ship intents from a swift-package dependency without a binary framework target.
+
+### `AppShortcutsProvider` in the App Intents extension (iOS 17+)
+
+Previously, an `AppShortcutsProvider` had to live in the main app bundle, which caused the app to launch every time a shortcut fired. On iOS 17+, the provider can live in an App Intents extension target - shortcuts run in the extension's lighter process, faster and without waking the main app.
+
+## Framework-defined entities
+
+iOS 18+ allows an `AppEntity` defined in a framework to be parameterized by an intent in the main app. Earlier versions required intent and entity in the same module. Registering the framework via `AppIntentsPackage` is enough; the extraction tooling threads entity metadata across module boundaries.
+
+External (non-Apple) library sources are still not supported - only first-party `AppIntentsPackage` conformers.
+
+## UIKit lifecycle: `UISceneAppIntent` and `AppIntentSceneDelegate`
+
+iOS 19+. For UIKit apps (or UIKit-scene-based Catalyst / iPad apps), two protocols give intents first-class scene awareness:
+
+### `UISceneAppIntent`
+
+Conform the intent when it should receive the `UIScene` that triggered it, so `perform()` can route scene-specific behavior:
+
+```swift
+struct OpenInNewWindowIntent: AppIntent, UISceneAppIntent {
+    static let title: LocalizedStringResource = "Open in new window"
+
+    @Parameter var target: NoteEntity
+
+    func perform() async throws -> some IntentResult {
+        let scene = try currentScene   // provided by UISceneAppIntent
+        // route into the specific scene
+        return .result()
+    }
+}
+```
+
+### `AppIntentSceneDelegate`
+
+Make the scene delegate aware of intent activations so it can configure window state before the intent fires:
+
+```swift
+class SceneDelegate: UIResponder, UIWindowSceneDelegate, AppIntentSceneDelegate {
+    func windowScene(_ scene: UIWindowScene, performActionFor intent: any AppIntent) async {
+        // prepare UI for the incoming intent
+    }
+}
+```
+
+On SwiftUI lifecycle apps, this is unnecessary - the `App.init()` / `@Dependency` pattern covers it.
+
+## Scene routing for `TargetContentProvidingIntent`
+
+iOS 19+. When a `TargetContentProvidingIntent` runs, the system needs to know *which* of the app's scenes should handle it. Two mechanisms:
+
+### `contentIdentifier` + `handlesExternalEvents`
+
+The intent declares a `contentIdentifier`; each scene declares which identifiers it accepts:
+
+```swift
+extension OpenNoteIntent: TargetContentProvidingIntent {
+    var contentIdentifier: String { "note-detail" }
+}
+
+// In SwiftUI
+WindowGroup {
+    NoteDetailView(...)
+}
+.handlesExternalEvents(matching: ["note-detail"])
+```
+
+The system picks the scene whose `handlesExternalEvents` matches the intent's identifier.
+
+### Per-view conditions
+
+For dynamic conditions (e.g., only the scene currently showing a specific entity should handle the intent), attach `.handlesExternalEvents` to the subview rather than the `WindowGroup`.
+
+When `contentIdentifier` is omitted, it defaults to the intent's type name.

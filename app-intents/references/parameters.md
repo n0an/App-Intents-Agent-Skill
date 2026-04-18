@@ -20,6 +20,17 @@ struct AppendToNoteIntent: AppIntent {
 
 By the time `perform()` runs, every non-optional `@Parameter` is filled. If the user didn't provide one, the system asked them - via Siri voice, a text field, or a picker - before calling `perform()`.
 
+On Xcode 16+, `title:` is optional. If omitted, the system auto-generates a localizable title from the property name (`newText` → "New Text"). Specify `title:` only when you want something different from the derived form.
+
+## Required vs optional parameters
+
+Design guidance: keep parameters **optional** unless the intent is genuinely useless without them.
+
+- Optional parameters let the intent run immediately with sensible defaults; the user only gets a follow-up prompt when they didn't supply a value explicitly.
+- Required parameters always trigger a prompt before `perform()` runs - even in Shortcuts, where the user just configured the shortcut and knows what they want.
+
+For boolean parameters, set a default that reflects the common case (`default: true`). For a toggle intent, default to the value the toggle ends up at - e.g., a "Set Do Not Disturb" intent defaults `enabled: true`.
+
 ## Supported parameter types
 
 Primitive:
@@ -173,6 +184,57 @@ Predicates that go inside `When`:
 
 Use `DefaultCase` to cover values not explicitly listed by `Case`.
 
+## Context-aware option providers: `IntentParameterDependency`
+
+A `DynamicOptionsProvider` or `EntityQuery` can read *other* parameters of the same intent by declaring them with `@IntentParameterDependency`. The options list then recomputes whenever the upstream parameter changes:
+
+```swift
+struct TrailsInRegionProvider: DynamicOptionsProvider {
+    @IntentParameterDependency<SuggestTrailsIntent>(\.$region)
+    var region
+
+    func results() async throws -> [String] {
+        guard let region else { return [] }
+        return store.trailNames(in: region)
+    }
+}
+```
+
+Use this for cascading pickers: country → region → city; folder → note; playlist → song. Without `IntentParameterDependency`, the options provider runs in isolation and can't see sibling parameters.
+
+iOS 17+. One provider can depend on multiple parameters and multiple parent intents.
+
+## Array parameter size declarations
+
+Array parameters can declare size limits per widget family, so the configuration UI asks for exactly the right number of items:
+
+```swift
+@Parameter(title: "Featured Routes", size: [
+    .systemSmall: 1,
+    .systemMedium: 3,
+    .systemLarge: 5
+])
+var routes: [RouteEntity]
+```
+
+Inside a `WidgetConfigurationIntent`, this lets a single intent back multiple widget sizes. iOS 17+.
+
+## Widget-family-conditional parameter summaries
+
+`parameterSummary` can branch on the widget family being configured:
+
+```swift
+static var parameterSummary: some ParameterSummary {
+    When(.widgetFamily, .equalTo, .systemLarge) {
+        Summary("Show \(\.$routes) detailed routes")
+    } otherwise: {
+        Summary("Show \(\.$route)")
+    }
+}
+```
+
+Useful when a large widget exposes extra parameters a small widget doesn't need. iOS 17+.
+
 ## Requesting a value mid-perform
 
 When a parameter is optional and you need it to continue, there are two mechanisms.
@@ -215,6 +277,32 @@ func perform() async throws -> some IntentResult {
 Use this when there's no point doing any work without the value. Anything you did before the throw is discarded on re-invocation.
 
 `requestValue` is newer and usually nicer ergonomically. `needsValueError` is older but still works, and is the only option if you want the system to record the prompt as a first-class "needs input" step in a Shortcuts automation.
+
+### `needsValueError` re-runs the intent
+
+When `needsValueError(...)` throws, the system prompts the user and then **calls `perform()` again from the top** - it doesn't resume from the throw point. Any side effects you performed before the throw run twice. Move side-effect work *after* parameter validation, or guard with idempotence checks.
+
+`requestValue` and `requestConfirmation` don't restart; they suspend and resume inline.
+
+## `requestChoice` for multiple options
+
+iOS 19+. When you want to offer the user a pick between several alternatives (not a confirm/cancel), use `requestChoice`:
+
+```swift
+let options: [IntentChoice<Route>] = routes.map {
+    IntentChoice(title: "\($0.name)", style: .default, value: $0)
+}
+
+let selected = try await requestChoice(
+    actionName: .select,
+    between: options,
+    dialog: "Which route should we take?"
+)
+
+try await navigator.go(to: selected)
+```
+
+Returns the chosen option or throws if the user cancels. Rendered as a button row in the Shortcuts/Siri UI. Options accept `style: .destructive` for delete-style choices.
 
 ## Disambiguation
 

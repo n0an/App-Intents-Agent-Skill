@@ -63,12 +63,20 @@ struct RefreshFeedIntent: AppIntent {
 | `AudioPlaybackIntent` / `AudioStartingIntent` | Plays audio; integrates with lock-screen, CarPlay. |
 | `VideoCallIntent` | Starts a video call. |
 | `CameraCaptureIntent` | Starts a camera capture flow. |
+| `ProgressReportingIntent` | Reports progress for long-running tasks; Shortcuts shows a progress bar automatically. Set `totalUnitCount`, bump `completedUnitCount` during `perform()`. (iOS 17+) |
 | `URLRepresentableIntent` | Lets the system open the app via a universal link URL without your `perform()` running. Pairs with `URLRepresentableEntity`. See `open-and-snippet-intents.md`. |
 | `TargetContentProvidingIntent` | Marker protocol on iOS - tells the system this intent produces the app scene users navigated to. Needed for visual intelligence routing back into the app. |
+| `WidgetConfigurationIntent` | Marker protocol for an intent that's *only* used as widget configuration. Parameter queries drive the configuration picker; no user-invokable action. (iOS 17+ via WidgetKit's `AppIntentConfiguration`) |
+| `ControlConfigurationIntent` | Same, but for Control Center controls (iOS 18+). An intent can be both the control's configuration and its tap action. |
+| `PredictableIntent` | The system learns from prior invocations and suggests the intent proactively; tailor the description dynamically based on parameter values. (iOS 19+) |
 
-## `ForegroundContinuableIntent`
+## Foreground continuation
 
-Use this when an intent sometimes can complete in the background but sometimes needs the user to finish a flow in the foreground (sign-in, permissions, confirmation of a destructive action):
+Intents sometimes need to bring the app forward mid-perform - to sign in, grant a permission, or finish something only the UI can handle. Three mechanisms, picked by iOS version.
+
+### `ForegroundContinuableIntent` + `needsToContinueInForegroundError` (iOS 17+)
+
+Throws an error, stops the intent, runs the closure when the user taps Continue:
 
 ```swift
 struct SuggestArticlesIntent: ForegroundContinuableIntent {
@@ -82,21 +90,98 @@ struct SuggestArticlesIntent: ForegroundContinuableIntent {
         if !account.loggedIn {
             let dialog = IntentDialog("You aren't logged in. Tap Continue to sign in.")
             throw needsToContinueInForegroundError(dialog) {
-                // Configure app UI when the user continues
                 navigation.route = .signIn
             }
         }
 
-        // Regular in-background path
         let articles = try await account.suggestions(for: topic)
         return .result(value: articles)
     }
 }
 ```
 
-`needsToContinueInForegroundError(_:)` throws an error, stops the intent, and - if the user taps Continue - launches the app and runs the closure so the app's UI is already positioned correctly. If the user dismisses, the intent is simply cancelled.
+### `requestToContinueInForeground` (iOS 17+, non-throwing)
 
-Prefer this over `openAppWhenRun = true` when the "open the app" path is conditional.
+Same idea but returns a value so the intent can continue execution after foregrounding instead of restarting from scratch:
+
+```swift
+let result = try await requestToContinueInForeground(dialog) {
+    await navigation.presentSignIn()  // returns user's chosen account
+}
+// result is whatever the closure returns; intent keeps running
+```
+
+Use when the foreground step yields data you need to finish the work.
+
+### `supportedModes` + `continueInForeground` (iOS 19+)
+
+The modern form. Declare which execution modes the intent supports, then decide dynamically inside `perform()`:
+
+```swift
+struct StartWorkoutIntent: AppIntent {
+    static let title: LocalizedStringResource = "Start workout"
+    static let supportedModes: IntentModes = [.background, .foreground(.dynamic)]
+
+    @Dependency var workoutManager: WorkoutManager
+
+    func perform() async throws -> some IntentResult {
+        if workoutManager.needsPermission {
+            try await continueInForeground(alwaysConfirm: false)
+        }
+        try await workoutManager.start()
+        return .result()
+    }
+}
+```
+
+Modes:
+
+- `.background` - run without UI.
+- `.foreground(.immediate)` - always foreground the app.
+- `.foreground(.dynamic)` - may foreground based on `continueInForeground()` calls.
+- `.foreground(.deferred)` - foreground after `perform()` completes.
+
+`continueInForeground(alwaysConfirm:)` opens the app; `alwaysConfirm: false` skips the confirmation prompt if the device was recently active (trusts recency as implicit consent).
+
+Prefer `supportedModes` + `continueInForeground` on iOS 19. `ForegroundContinuableIntent` / `needsToContinueInForegroundError` remain for backward compatibility.
+
+## Background launch without scenes
+
+When an intent runs with `openAppWhenRun = false`, the system launches your app process but does **not** bring up scenes - the UI hierarchy isn't constructed, no `body` properties run. Only `App.init()` executes.
+
+Two consequences:
+
+- Any intent-relevant setup must live in `App.init()` (see `dependencies.md`).
+- If an intent later decides it needs UI (e.g., via `continueInForeground`), the system will create the scene at that point.
+
+Background launches are significantly faster than scene launches. Keep `openAppWhenRun = false` whenever possible.
+
+## Hard limits and character caps
+
+App Intents have a few concrete caps worth knowing:
+
+- **10 App Shortcuts per app.** The `AppShortcutsProvider.appShortcuts` array is capped at 10. Pick the most habitual actions.
+- **1,000 total trigger phrases.** Includes all parameter expansions. A phrase like `"Open \(\.$folder) in \(.applicationName)"` with a 20-folder list counts as 20 phrases.
+- **First phrase is the primary.** The first entry in `phrases:` becomes the tile label on the Shortcuts home, and the phrase Siri answers with when asked "What can I do with X?"
+
+Plan phrase arrays with the primary-first rule in mind.
+
+## Strings file location
+
+App Intents metadata is extracted at build time by the Swift compiler. Localized strings for intent titles, descriptions, dialog, and parameter prompts must live in a `.strings` file or String Catalog **in the same module** as the intent types that reference them - a framework can't hold strings for intents defined elsewhere.
+
+On iOS 17+ use the dedicated `AppShortcuts` String Catalog for shortcut phrases (see `shortcuts-and-siri.md`) - it removes the per-locale phrase-count limit that used to apply to Swift-declared phrases.
+
+## "Everything should be an App Intent"
+
+Apple's design guidance shifted at WWDC24: instead of exposing only the one or two most-habitual actions, treat every meaningful thing the app does as a potential intent. Caveats:
+
+- Don't create one intent per variant of the same task (one flexible intent with a parameter is better than many near-duplicates).
+- Don't expose UI-level actions as intents ("save draft", not "tap the save button").
+- Parameter summaries must read as natural sentences for every combination of values.
+- Start with habitual actions; expand coverage later.
+
+The limit on the app-shortcuts array (10) still forces selectivity for the Siri / Action Button / Shortcuts-home surfaces. But the intent catalog itself can be much larger - the uncapped intents still surface in the Shortcuts editor and in downstream compositions.
 
 ## Return-type composition
 

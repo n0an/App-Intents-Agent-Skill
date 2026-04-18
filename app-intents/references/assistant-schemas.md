@@ -4,6 +4,28 @@ Regular `AppEntity` / `AppIntent` let Siri understand *your* concepts. **Assista
 
 Requires iOS 18.2+ for most schemas; some journaling, mail, and spreadsheet schemas require 18.4+. Availability of the *features that consume* these schemas is rolling out slowly - adopting the schema makes your data eligible, it does not guarantee it will be used.
 
+## App Intent Domains
+
+Schemas are grouped into **domains** - one per app category Apple has pre-trained Siri/Apple Intelligence on. Each domain ships with `create`, `open`, `update`, `delete`, and `search` schema variants, with ~100 pre-trained intents across the lineup.
+
+Domains shipped so far:
+
+- `.books` - read position, annotations, library
+- `.browser` - tabs, bookmarks, history
+- `.camera` - capture flows
+- `.files` - document operations
+- `.journal` - entry composition and search
+- `.mail` - compose, reply, search
+- `.photos` - assets, albums, persons
+- `.presentations` - slides, decks
+- `.spreadsheets` - cells, ranges, templates
+- `.system` - search (`.system.search`), share, print
+- `.systemSearch` - search queries and suggestions
+- `.visualIntelligence` - semantic content search
+- (Others roll out in later iOS releases.)
+
+Adopt the most specific domain that matches your app. A reading app uses `.books`; a markdown-notes app uses `.journal`; a scanner app uses `.files` + `.photos`.
+
 ## Adopting a schema
 
 Use `@AssistantEntity(schema:)` on an entity type:
@@ -153,6 +175,22 @@ The schema dictates:
 
 `@AppIntent(schema:)` is the modern syntax; `@AssistantIntent(schema:)` works too and is equivalent. New code should use `@AppIntent(schema:)`.
 
+## Testing schema intents before Apple Intelligence reaches users
+
+Assistant-schema intents light up in Siri / Apple Intelligence gradually as Apple rolls each schema's consumer out. Before that happens, test them **inside the Shortcuts app**:
+
+- In Shortcuts' library, filter by **AssistantSchemas** to see only schema-conforming intents.
+- Configure and run them manually like any other action; the execution path is the same as when Siri invokes them.
+- Once the consuming Apple Intelligence surface ships, no code changes are needed - the same intents automatically become Siri-addressable.
+
+This is the intended validation path while schemas are still rolling out.
+
+## Xcode schema code snippets
+
+Xcode 16+ ships code snippets for every schema. Type the domain name (`journal`, `photos`, `mail`) in the editor; completion offers pre-filled skeletons for each schema's intent, entity, and enum - the names and types are already correct, so you avoid the macro's cryptic "field doesn't match schema" errors.
+
+Use the snippets for first-time adoption. Hand-writing a schema type from the API docs alone is error-prone because the macro rejects small deviations without helpful diagnostics.
+
 ## Schema-adopted enums
 
 Enums can also declare schema adoption. The macro enforces allowed case names:
@@ -235,6 +273,35 @@ struct SearchAssetsIntent: ShowInAppSearchResultsIntent {
 ```
 
 Routes a system search query into the app's in-app search UI. Siri / Spotlight / visual intelligence can invoke this so results surface inside the app's native search rather than as external cards.
+
+`.system.search` is the generic version of this schema, usable by any app type. Photo and mail apps use the domain-specific variants (`.photos.search`, `.mail.search`). iOS 18+.
+
+## Apple Intelligence through Shortcuts: the Use Model action
+
+iOS 19+. Shortcuts ships a **Use Model** action that invokes on-device, Private Cloud Compute, or ChatGPT models, with App Entities as input and output:
+
+- **App entity input** - the Shortcuts runtime serializes the entity to JSON (its display representation, type name, and exposed `@Property` values) and passes that to the model as context.
+- **Output** - the model can emit text, dictionaries, booleans, or an App Entity of a type you declare. Downstream intents receive it as a typed value.
+- **Follow-up turns** - the action supports multi-turn conversation, useful for assistants-over-app-data flows.
+
+For intent authors, two implications:
+
+### Accept `AttributedString`, not `String`, for text parameters
+
+When an intent's text parameter may receive model output, declare it as `AttributedString`:
+
+```swift
+@Parameter(title: "Body")
+var body: AttributedString
+```
+
+Models increasingly generate rich text (bold, italic, lists, tables). `String` parameters lose formatting; `AttributedString` preserves it losslessly. Internally, drop to `String(body.characters[...])` when you need plain text.
+
+### Expose the fields the model should see via `@Property`
+
+The JSON the Use Model action sends to the model is built from your entity's `@Property`-exposed fields (plus `typeDisplayRepresentation` and `displayRepresentation`). Fields not marked `@Property` are invisible to the model. Audit your entities for anything a user-friendly model response would need.
+
+This is a direct, low-ceremony integration point with Apple Intelligence that requires no schema adoption - any `AppIntent` with well-shaped entities participates automatically.
 
 ## Visual intelligence: `IntentValueQuery` + `@UnionValue`
 
