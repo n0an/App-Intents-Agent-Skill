@@ -363,3 +363,125 @@ When a user taps an app entity in Spotlight results, the system looks for an `Op
 ...tapping the Spotlight result routes through your `OpenIntent` automatically. No additional wiring.
 
 In simulator this sometimes takes a few minutes after first launch before it starts working reliably - the index builds up in the background. On device it's generally faster.
+
+## `URLRepresentableEntity` + `URLRepresentableIntent`
+
+If your app already handles universal links to display specific entities, don't write duplicate navigation code in an `OpenIntent.perform()`. Let the system route through your universal-link handler automatically.
+
+Step 1 - declare the URL representation of the entity:
+
+```swift
+extension TrailEntity: URLRepresentableEntity {
+    static var urlRepresentation: URLRepresentation {
+        // Use string interpolation with the entity's identifier
+        "https://example.com/trail/\(.id)/details"
+    }
+}
+```
+
+Step 2 - conform the open intent to both `OpenIntent` and `URLRepresentableIntent`, and omit `perform()`:
+
+```swift
+struct OpenTrail: OpenIntent, URLRepresentableIntent {
+    static let title: LocalizedStringResource = "Open Trail"
+    static let description = IntentDescription("Displays trail details in the app.")
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$target)")
+    }
+
+    @Parameter(title: "Trail")
+    var target: TrailEntity
+
+    // No perform() - the system builds the URL from TrailEntity.urlRepresentation
+    // and hands it to your universal-link handler.
+}
+```
+
+The intent compiles and runs without a `perform()` body. When the user runs the intent, the system:
+
+1. Asks `TrailEntity.urlRepresentation` for the URL, interpolating `\(.id)`.
+2. Opens the app with that URL through the standard universal-link path.
+3. Your existing `.onOpenURL` / `UIApplication(_:continue:)` / `NSUserActivity` handler navigates to the right scene.
+
+Don't mix modes: if you provide a `perform()`, it runs instead of the URL path. Pick one.
+
+`URLRepresentationConfiguration` (iOS 18+) lets you define named fragments and configure the behavior further; for simple apps, string-literal `URLRepresentation` is enough.
+
+## `TargetContentProvidingIntent`
+
+Marker protocol on iOS that tells the system "this intent's completion produces the scene the user is navigating to." The most common use is making an `OpenIntent` eligible as the final step of a visual intelligence flow (user circles something in the camera, picks a result from your app, the system runs your intent to land them in the right scene):
+
+```swift
+struct OpenLandmarkIntent: OpenIntent {
+    static let title: LocalizedStringResource = "Open Landmark"
+
+    @Parameter(title: "Landmark", requestValueDialog: "Which landmark?")
+    var target: LandmarkEntity
+}
+
+#if os(iOS)
+extension OpenLandmarkIntent: TargetContentProvidingIntent {}
+#endif
+```
+
+Gate on `#if os(iOS)` - the protocol is iOS-only. Don't skip the conformance when you want visual intelligence to be able to land users inside your app; without it, the system treats the intent as a side-effect action instead of a navigation endpoint.
+
+## Multi-step interactive confirmation with snippet intents
+
+The snippet-intent pattern (see above) can be extended into a multi-step interactive flow using `requestConfirmation(actionName:snippetIntent:)`. The intent pauses, the system shows a snippet the user can interact with (configure parameters via `Button(intent:)`), and only after they confirm does the intent continue:
+
+```swift
+struct FindTicketsIntent: AppIntent {
+    static let title: LocalizedStringResource = "Find Tickets"
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Find best ticket prices for \(\.$landmark)")
+    }
+
+    @Dependency var searchEngine: SearchEngine
+
+    @Parameter var landmark: LandmarkEntity
+
+    func perform() async throws -> some IntentResult & ShowsSnippetIntent {
+        let searchRequest = await searchEngine.createRequest(landmarkEntity: landmark)
+
+        // Present a snippet that allows people to change the number of tickets.
+        try await requestConfirmation(
+            actionName: .search,
+            snippetIntent: TicketRequestSnippetIntent(searchRequest: searchRequest)
+        )
+
+        // After the user confirms, perform the ticket search.
+        try await searchEngine.performRequest(request: searchRequest)
+
+        // Show the result snippet.
+        return .result(
+            snippetIntent: TicketResultSnippetIntent(searchRequest: searchRequest)
+        )
+    }
+}
+```
+
+The request snippet displays configurable fields driven by helper intents:
+
+```swift
+struct ConfigureGuestsIntent: AppIntent {
+    static let title: LocalizedStringResource = "Configure Guests"
+    static let isDiscoverable: Bool = false   // helper only
+
+    @Dependency var searchEngine: SearchEngine
+
+    @Parameter var searchRequest: SearchRequestEntity
+    @Parameter var numberOfGuests: Int
+
+    func perform() async throws -> some IntentResult {
+        await searchEngine.setGuests(to: numberOfGuests, searchRequest: searchRequest)
+        return .result()
+    }
+}
+```
+
+Flow: main intent pauses → request snippet shows → user taps `Button(intent: ConfigureGuestsIntent(...))` to change values → user taps "Search" (confirmation) → main intent resumes → result snippet shown. All without leaving Siri or the Shortcuts panel.
+
+`actionName:` is a standard verb (`.search`, `.send`, `.play`, `.confirm`, `.delete`) that labels the confirmation button.

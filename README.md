@@ -16,18 +16,21 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 
 ## What It Covers
 
-- **Intents** - `AppIntent`, `OpenIntent`, `SnippetIntent`, dialog, grammar agreement, return types, `IntentDescription`, `isDiscoverable`
-- **Parameters** - `@Parameter`, primitives, entity parameters, `@AppEnum` (`typeDisplayName`), parameter prompts, `requestValue` vs `needsValueError`
-- **Entities** - `AppEntity`, `IndexedEntity`, the shadow-struct pattern for SwiftData, display representations
-- **Queries** - `EnumerableEntityQuery`, `EntityQuery`, `EntityStringQuery`, `UniqueIDEntityQuery`
-- **Snippets + Buttons** - `ShowsSnippetView` (inline), `ShowsSnippetIntent` + `SnippetIntent` (indirect), `Button(intent:)` in SwiftUI/widgets
-- **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `updateAppShortcutParameters()`, `SiriTipView`, `ShortcutsLink`
-- **Spotlight** - `IndexedEntity`, `CSSearchableIndex`, attribute sets, indexing strategies
+- **Intents** - `AppIntent`, `OpenIntent`, `SnippetIntent`, `ForegroundContinuableIntent`, `DeleteIntent`, `ShowInAppSearchResultsIntent`, `TargetContentProvidingIntent`, `URLRepresentableIntent`
+- **Dialog + return types** - `ProvidesDialog`, `ReturnsValue`, `ShowsSnippetView`, `ShowsSnippetIntent`, `IntentDialog(full:supporting:)`, grammar agreement
+- **Metadata** - `IntentDescription(categoryName:searchKeywords:resultValueName:)`, `isDiscoverable`, `openAppWhenRun`
+- **Parameters** - `@Parameter`, `@AppEnum` (with `typeDisplayName`), `DynamicOptionsProvider`, measurement options, `requestValue` / `needsValueError` / `requestConfirmation`, conditional `parameterSummary` (`Switch`/`Case`/`When`/`otherwise`)
+- **Entities** - `AppEntity`, `IndexedEntity`, `TransientAppEntity`, shadow-struct pattern for SwiftData, `@Property`, `@ComputedProperty(indexingKey:)`, `@DeferredProperty`, synonyms, pluralized `TypeDisplayRepresentation`
+- **Queries + Find intents** - `EntityQuery`, `EntityStringQuery`, `EnumerableEntityQuery`, `EntityPropertyQuery` (auto-generated Find intent with comparators + sort), `UniqueIDEntityQuery`, `IntentValueQuery` (visual intelligence)
+- **Transferable + URL** - `Transferable` conformance for sharing, `URLRepresentableEntity` + `URLRepresentableIntent` for no-code universal-link opens
+- **Snippets + Buttons** - `ShowsSnippetView` (inline), `ShowsSnippetIntent` + `SnippetIntent` (indirect), interactive `requestConfirmation(actionName:snippetIntent:)` flows, `Button(intent:)`
+- **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `updateAppShortcutParameters()` (SwiftUI + UIKit), `SiriTipView`, `ShortcutsLink`
+- **Spotlight** - `IndexedEntity`, `CSSearchableIndex`, `associateAppEntity(_:priority:)` for existing pipelines, `@ComputedProperty(indexingKey:)`, custom attribute keys
 - **Dependencies** - `@Dependency`, `AppDependencyManager`, data-controller pattern
 - **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes, App Group sharing pattern for interactive widget state
 - **SwiftData** - `ModelContainer` vs `ModelContext` sendability, safe cross-actor patterns
-- **Apple Intelligence** - `@AssistantEntity` / `@AssistantIntent` schemas for journal, photos, mail, etc.
-- **Anti-patterns** - catches `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `isDiscoverable` on helpers, stale widgets, stale shortcut parameters, and more
+- **Apple Intelligence** - `@AppEntity` / `@AppIntent` / `@AppEnum` schema macros for `.photos.*`, `.journal.*`, `.mail.*`, `.browser.*`, `.visualIntelligence.*`; onscreen content via `userActivity(_:element:)`; `@UnionValue` for multi-type results
+- **Anti-patterns** - catches `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `@Property`, `AppEntity` instead of `TransientAppEntity`, missing `Transferable`, duplicate `perform()` on `URLRepresentableIntent`, and more
 
 
 ## Installing

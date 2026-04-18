@@ -80,6 +80,169 @@ An `AppEntity` must provide:
 
 `typeDisplayRepresentation` is shared across all entities of the type; `displayRepresentation` is per-instance. Do not mix them up.
 
+## Entity property wrappers
+
+Fields that the system should expose through Shortcuts pickers, parameter summaries, Find intents, and Spotlight attribute sets need to be wrapped. Plain stored properties are visible to your code but invisible to the App Intents framework.
+
+### `@Property` - exposed stored property
+
+```swift
+struct ArticleEntity: AppEntity {
+    var id: UUID
+
+    @Property var name: String
+    @Property(title: "Region") var regionDescription: String
+    @Property var trailLength: Measurement<UnitLength>
+
+    // Not exposed (system cannot query or sort by it)
+    var imageName: String
+    var currentConditions: String
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Trail"
+    static let defaultQuery = TrailEntityQuery()
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(name)", subtitle: "\(regionDescription)",
+                              image: DisplayRepresentation.Image(named: imageName))
+    }
+}
+```
+
+The `@Property` wrapper is what lets you:
+
+- Use the field in a `parameterSummary` key path (`Summary("...\(\.$name)...")`)
+- Use it in an `EntityPropertyQuery` (the auto-generated Find intent)
+- Reference it in `SortableBy(\.$name)`
+- Map it to Spotlight indexing keys via `@ComputedProperty(indexingKey:)`
+
+The title defaults to the variable name; supply `@Property(title: "Region")` to customize.
+
+### `@ComputedProperty` - exposed computed property
+
+Map a computed property onto the exposed surface:
+
+```swift
+struct LandmarkEntity: IndexedEntity {
+    var landmark: Landmark
+    var modelData: ModelData
+
+    @ComputedProperty(indexingKey: \.displayName)
+    var name: String { landmark.name }
+
+    // Maps the description variable to the Spotlight indexing key `contentDescription`.
+    @ComputedProperty(indexingKey: \.contentDescription)
+    var description: String { landmark.description }
+
+    // Maps the continent variable to a custom Spotlight indexing key.
+    @ComputedProperty(
+        customIndexingKey: CSCustomAttributeKey(
+            keyName: "com_example_LandmarkEntity_continent"
+        )!
+    )
+    var continent: String { landmark.continent }
+}
+```
+
+`indexingKey:` maps the property to one of the standard `CSSearchableItemAttributeSet` keys (`\.displayName`, `\.contentDescription`, `\.keywords`, ...). `customIndexingKey:` uses a custom Spotlight attribute key you declare. Both feed Spotlight automatically - no separate `attributeSet` code needed for those fields.
+
+### `@DeferredProperty` - lazy async property
+
+For fields that are expensive to compute or require async access, don't load them eagerly:
+
+```swift
+@DeferredProperty
+var crowdStatus: Int {
+    get async throws {
+        await modelData.getCrowdStatus(self)
+    }
+}
+```
+
+The system only materializes the value when a consumer (a shortcut, Siri, Spotlight) actually needs it. Use `@DeferredProperty` when the value involves a network round-trip, model inference, or an expensive database aggregation.
+
+## Pluralized type name and synonyms
+
+`TypeDisplayRepresentation` takes an optional `numericFormat` for pluralization, and `DisplayRepresentation` takes `synonyms` so Siri accepts alternate phrasings:
+
+```swift
+static var typeDisplayRepresentation: TypeDisplayRepresentation {
+    TypeDisplayRepresentation(
+        name: LocalizedStringResource("Trail", table: "AppIntents"),
+        numericFormat: LocalizedStringResource("\(placeholder: .int) trails", table: "AppIntents")
+    )
+}
+
+var displayRepresentation: DisplayRepresentation {
+    DisplayRepresentation(
+        title: "Workout Summary",
+        subtitle: "\(calories) calories",
+        image: DisplayRepresentation.Image(systemName: "figure.hiking"),
+        synonyms: ["Activity Summary", "Session Summary"]
+    )
+}
+```
+
+## Transient entities
+
+Not all intent-returned data has a persistent identifier. A summary, an aggregated statistic, or a request-scoped wrapper shouldn't conform to `AppEntity` - it would require an `EntityQuery` that makes no sense. Use `TransientAppEntity` instead:
+
+```swift
+struct ActivityStatisticsSummary: TransientAppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Workout Summary")
+
+    @Property var summaryStartDate: Date
+    @Property var workoutsCompleted: Int
+    @Property var caloriesBurned: Measurement<UnitEnergy>
+    @Property var distanceTraveled: Measurement<UnitLength>
+
+    init() {
+        summaryStartDate = Date()
+        workoutsCompleted = 0
+        caloriesBurned = Measurement(value: 0, unit: .calories)
+        distanceTraveled = Measurement(value: 0, unit: .meters)
+    }
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "Workout Summary",
+                              subtitle: "You burned \(caloriesBurned.formatted()) calories.",
+                              synonyms: ["Activity Summary"])
+    }
+}
+```
+
+No `id`, no `defaultQuery` - Shortcuts won't try to enumerate or look them up. But `@Property` still applies, so downstream actions in a shortcut can chain `distanceTraveled` or `caloriesBurned` as typed inputs.
+
+Use `TransientAppEntity` for return data that's computed on the fly and exists only for that intent invocation.
+
+## Transferable entities
+
+Conforming an `AppEntity` to `Transferable` makes it sharable with other apps and forwardable to Siri / Apple Intelligence as concrete data (image, PDF, text, RTF):
+
+```swift
+extension LandmarkEntity: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .pdf) { @MainActor landmark in
+            // Render a PDF and return SentTransferredFile(url)
+        }
+
+        DataRepresentation(exportedContentType: .image) {
+            try $0.imageRepresentationData
+        }
+
+        DataRepresentation(exportedContentType: .plainText) {
+            """
+            Landmark: \($0.name)
+            Description: \($0.description)
+            """.data(using: .utf8)!
+        }
+    }
+}
+```
+
+When Siri or the system share sheet asks for the entity's content, they use this representation. Ordering matters: put richer representations first; the system picks the first one the consumer accepts.
+
+`Transferable` is required for schemas that expect exportable content (e.g., `.photos.asset`). It's also what lets "send this to Mail" or "summarize this" work when the entity is the current onscreen content.
+
 ## `DisplayRepresentation` anatomy
 
 ```swift
@@ -178,6 +341,99 @@ extension ArticleEntityQuery: EntityStringQuery {
 ### `UniqueIDEntityQuery`
 
 Convenience for the common case where you have exactly one identifier column and simple lookup by id.
+
+### `EntityPropertyQuery` - auto-generated Find intent
+
+Conforming your query to `EntityPropertyQuery` automatically adds a **Find intent** to the Shortcuts app - a generic, user-configurable predicate search over the entity's exposed `@Property` fields. Users can build "find articles where title contains X and length less than Y, sorted by date" without you writing that UI.
+
+```swift
+extension TrailEntityQuery: EntityPropertyQuery {
+    typealias ComparatorMappingType = Predicate<TrailEntity>
+
+    static let properties = QueryProperties {
+        Property(\TrailEntity.$name) {
+            ContainsComparator { searchValue in
+                #Predicate<TrailEntity> { $0.name.localizedStandardContains(searchValue) }
+            }
+            EqualToComparator { searchValue in
+                #Predicate<TrailEntity> { $0.name == searchValue }
+            }
+            NotEqualToComparator { searchValue in
+                #Predicate<TrailEntity> { $0.name != searchValue }
+            }
+        }
+
+        Property(\TrailEntity.$trailLength) {
+            LessThanOrEqualToComparator { searchValue in
+                #Predicate<TrailEntity> { $0.trailLength <= searchValue }
+            }
+            GreaterThanOrEqualToComparator { searchValue in
+                #Predicate<TrailEntity> { $0.trailLength >= searchValue }
+            }
+        }
+    }
+
+    static let sortingOptions = SortingOptions {
+        SortableBy(\TrailEntity.$name)
+        SortableBy(\TrailEntity.$trailLength)
+    }
+
+    static var findIntentDescription: IntentDescription? {
+        IntentDescription("Search for trails matching complex criteria.",
+                          categoryName: "Discover",
+                          searchKeywords: ["trail", "location", "travel"],
+                          resultValueName: "Trails")
+    }
+
+    func entities(matching comparators: [Predicate<TrailEntity>],
+                  mode: ComparatorMode,
+                  sortedBy: [EntityQuerySort<TrailEntity>],
+                  limit: Int?) async throws -> [TrailEntity] {
+        // 1. Filter entities against the predicates
+        // 2. Sort per `sortedBy`
+        // 3. Truncate to `limit`
+    }
+}
+```
+
+Requirements:
+
+- Every property referenced in `QueryProperties` must be marked `@Property` on the entity.
+- Each `Property(...)` block lists which comparators users can apply (`ContainsComparator`, `EqualToComparator`, `LessThanOrEqualToComparator`, ...). Only comparators that make semantic sense for the field type are useful.
+- `sortingOptions` lists which properties are sortable.
+- `findIntentDescription` populates the Shortcuts-app presentation for the auto-generated Find intent.
+
+The `entities(matching:mode:sortedBy:limit:)` function receives closed-over predicates; the `mode` is `.and` or `.or` depending on how the user combined criteria. Loop, evaluate, sort, limit.
+
+### `EnumerableEntityQuery` also supports Find intents
+
+For small fixed sets, `EnumerableEntityQuery` alone gets a basic Find intent (filter-by-name) with no extra code. Add `findIntentDescription` to customize its presentation:
+
+```swift
+struct FeaturedCollectionEntityQuery: EnumerableEntityQuery {
+    static var findIntentDescription: IntentDescription? {
+        IntentDescription("Find a featured collection.",
+                          categoryName: "Discover",
+                          searchKeywords: ["collection", "featured"],
+                          resultValueName: "Collections")
+    }
+
+    func allEntities() async throws -> [CollectionEntity] { ... }
+    func entities(for identifiers: [CollectionEntity.ID]) async throws -> [CollectionEntity] { ... }
+    func suggestedEntities() async throws -> [CollectionEntity] { ... }
+}
+```
+
+Picking a query conformance:
+
+| Conformance | Find intent? | Best for |
+|---|---|---|
+| `EntityQuery` | No | Any entity type (baseline) |
+| `EntityQuery + EntityStringQuery` | No | Large datasets with search-by-name |
+| `EnumerableEntityQuery` | Basic (filter by name) | Small fixed sets (folders, categories) |
+| `EntityPropertyQuery` | Full (predicates + sort) | Large datasets with multiple queryable fields |
+
+Apps can adopt multiple conformances on the same query (Apple's `LandmarkEntityQuery` is simultaneously `EntityQuery`, `EntityStringQuery`, and `EnumerableEntityQuery`). Each conformance enables a different system-facing capability.
 
 ## Predicate pitfall: local copy of id
 

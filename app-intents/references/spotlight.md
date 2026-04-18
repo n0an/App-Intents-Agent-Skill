@@ -33,8 +33,13 @@ Indexing is async and happens off the UI. Hand your entities to `CSSearchableInd
 ```swift
 import CoreSpotlight
 
+guard CSSearchableIndex.isIndexingAvailable() else {
+    return
+}
 try await CSSearchableIndex.default().indexAppEntities(entities)
 ```
+
+`isIndexingAvailable()` returns `false` on platforms / configurations where Spotlight indexing isn't supported (some watchOS setups, disabled-by-user). Guarding avoids spurious error logs.
 
 That's the whole API. You pass `IndexedEntity` instances; the system extracts the display representation, attribute set, and id.
 
@@ -99,6 +104,70 @@ Cancelling the previous task before sleeping means typing fast produces one inde
 ### Bulk index at startup
 
 If your content is effectively static (curated catalogue, preset library), index everything once in `App.init()` or on first launch and don't bother with per-change tracking.
+
+## Mapping properties to indexing keys: `@ComputedProperty(indexingKey:)`
+
+If you've already declared entity computed properties with `@ComputedProperty` (see `entities.md`), you can map them directly to Spotlight attribute-set keys without writing any `attributeSet` code:
+
+```swift
+struct LandmarkEntity: IndexedEntity {
+    @ComputedProperty(indexingKey: \.displayName)
+    var name: String { landmark.name }
+
+    @ComputedProperty(indexingKey: \.contentDescription)
+    var description: String { landmark.description }
+
+    @ComputedProperty(
+        customIndexingKey: CSCustomAttributeKey(
+            keyName: "com_example_LandmarkEntity_continent"
+        )!
+    )
+    var continent: String { landmark.continent }
+}
+```
+
+Standard indexing keys (`\.displayName`, `\.contentDescription`, `\.keywords`, `\.addedDate`, ...) correspond to fields on `CSSearchableItemAttributeSet`. Custom keys are for domain-specific attributes that don't fit any standard; declare them once via `CSCustomAttributeKey(keyName:)` and reference them consistently.
+
+This is the leanest way to feed Spotlight for most entities. Only drop into an explicit `attributeSet` computed property when you need fields that can't be mapped from a single computed property (e.g., an image URL constructed from multiple inputs).
+
+## Associating Spotlight items with entities: `associateAppEntity`
+
+Some apps already have a mature Spotlight indexing pipeline built around `CSSearchableItem` - a non-entity `Trail` or `Document` type with a carefully-tuned `CSSearchableItemAttributeSet`. Rather than rewriting indexing to go through `IndexedEntity`, associate the existing `CSSearchableItem` with the matching `AppEntity`:
+
+```swift
+import CoreSpotlight
+
+func updateSpotlightIndex() async {
+    guard CSSearchableIndex.isIndexingAvailable() else { return }
+
+    let searchableItems = trails.map { trail in
+        let item = CSSearchableItem(
+            uniqueIdentifier: String(trail.id),
+            domainIdentifier: nil,
+            attributeSet: trail.searchableAttributes
+        )
+
+        let isFavorite = favoritesCollection.members.contains(trail.id)
+        let priority = isFavorite ? 10 : 1
+        let entity = TrailEntity(trail: trail)
+
+        // Link the Spotlight item to the corresponding AppEntity.
+        // Must happen BEFORE the item is added to the index.
+        item.associateAppEntity(entity, priority: priority)
+        return item
+    }
+
+    try? await CSSearchableIndex.default().indexSearchableItems(searchableItems)
+}
+```
+
+Why this matters:
+
+- The app's existing `CSSearchableItem` pipeline keeps working unchanged.
+- When the user taps a Spotlight result, the system knows an `AppEntity` is associated with it, and routes the tap through the matching `OpenIntent` (see `open-and-snippet-intents.md`) instead of just opening the app.
+- `priority:` nudges ranking - favorite / pinned items get a larger number and surface earlier.
+
+Pick one approach per entity: either `indexAppEntities([entity])` (for new apps and simple cases), or `indexSearchableItems([item])` with `item.associateAppEntity(entity, priority:)` (when you already have a detailed attribute-set pipeline).
 
 ## Enriching the Spotlight card with `attributeSet`
 

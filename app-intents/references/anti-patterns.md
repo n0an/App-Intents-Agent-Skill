@@ -486,6 +486,133 @@ func perform() async throws -> some IntentResult {
 
 For apps with many widget kinds, use `reloadTimelines(ofKind:)` to avoid unnecessary work.
 
+## Entity fields without `@Property` aren't queryable
+
+Plain stored or computed properties on an `AppEntity` are visible to your code but invisible to Shortcuts, Find intents, and parameter summaries. If a user would reasonably want to filter or sort by the field, mark it `@Property` (or `@ComputedProperty` for derived values):
+
+```swift
+// WRONG - `trailLength` can never be used in Shortcuts, Find intents, or parameter summaries
+struct TrailEntity: AppEntity {
+    @Property var name: String
+    var trailLength: Measurement<UnitLength>   // plain - invisible to the system
+    ...
+}
+
+// CORRECT
+struct TrailEntity: AppEntity {
+    @Property var name: String
+    @Property var trailLength: Measurement<UnitLength>
+    ...
+}
+```
+
+Ask: "Could a user want to build a shortcut that filters or sorts by this field?" If yes, wrap it.
+
+## `EntityQuery` alone when `EntityPropertyQuery` would auto-generate a Find intent
+
+When an entity has several `@Property` fields users might filter on, conforming the query to `EntityPropertyQuery` automatically gives the user a "Find [Entity]" action in Shortcuts with full predicate building and sorting. You don't have to write that UI.
+
+```swift
+// OK but leaves features on the table
+struct TrailEntityQuery: EntityQuery {
+    func entities(for identifiers: [TrailEntity.ID]) async throws -> [TrailEntity] { ... }
+    func suggestedEntities() async throws -> [TrailEntity] { ... }
+}
+
+// BETTER - user gets a "Find Trail" action automatically
+extension TrailEntityQuery: EntityPropertyQuery {
+    static let properties = QueryProperties {
+        Property(\TrailEntity.$name) {
+            ContainsComparator { ... }
+            EqualToComparator { ... }
+        }
+        Property(\TrailEntity.$trailLength) {
+            LessThanOrEqualToComparator { ... }
+        }
+    }
+    static let sortingOptions = SortingOptions {
+        SortableBy(\TrailEntity.$name)
+        SortableBy(\TrailEntity.$trailLength)
+    }
+    func entities(matching: [Predicate<TrailEntity>], mode: ComparatorMode,
+                  sortedBy: [EntityQuerySort<TrailEntity>], limit: Int?) async throws -> [TrailEntity] { ... }
+}
+```
+
+Skip `EntityPropertyQuery` only if the dataset is genuinely enumerable (small, fixed) - in which case prefer `EnumerableEntityQuery`.
+
+## Implementing `perform()` on a `URLRepresentableIntent`
+
+If the entity conforms to `URLRepresentableEntity` and the intent conforms to both `OpenIntent` and `URLRepresentableIntent`, the system opens the URL via the app's universal-link handler automatically. Writing a `perform()` body *replaces* that automation - you lose the URL routing path.
+
+```swift
+// WRONG - perform() runs instead of URL routing; duplicates universal-link logic
+struct OpenTrail: OpenIntent, URLRepresentableIntent {
+    @Parameter var target: TrailEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        navigator.route = .trail(target.id)   // duplicate of what .onOpenURL already does
+        return .result()
+    }
+}
+
+// CORRECT - no perform(), system uses urlRepresentation
+struct OpenTrail: OpenIntent, URLRepresentableIntent {
+    @Parameter var target: TrailEntity
+    // no perform()
+}
+```
+
+Pick one routing mechanism. If the app has mature universal-link handling, use the URL path. If it doesn't, implement `perform()` without `URLRepresentableIntent`.
+
+## Returning computed / aggregated data as `AppEntity` instead of `TransientAppEntity`
+
+`AppEntity` requires a persistent identifier and a working `EntityQuery`. Computed summaries (total steps today, current weather, aggregated workout stats) have no id and can't be looked up by one - they're recomputed each request. Using `AppEntity` for them forces an awkward `EntityQuery` that can only return one "current" value.
+
+```swift
+// WRONG - no real id, EntityQuery makes no sense
+struct WorkoutSummary: AppEntity {
+    var id: UUID   // always .init(), meaningless
+    @Property var totalSteps: Int
+    static let defaultQuery = DummyQuery()   // awkward
+    ...
+}
+
+// CORRECT
+struct WorkoutSummary: TransientAppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Workout Summary")
+    @Property var totalSteps: Int
+    init() { totalSteps = 0 }
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "Workout Summary", subtitle: "\(totalSteps) steps")
+    }
+}
+```
+
+Rule of thumb: if you can't answer "what does `entities(for: [id])` do here?", you want `TransientAppEntity`.
+
+## Missing `Transferable` conformance on entities used onscreen
+
+For entities surfaced via `userActivity(_:element:)`, Siri / Apple Intelligence can *identify* the entity but can't do anything useful with its *content* unless the entity conforms to `Transferable`. Without it, "what can I do with this?" returns empty.
+
+```swift
+// Viewable by Siri but opaque
+struct PhotoEntity: AppEntity { ... }
+
+// Usable by Siri (forwardable as image/PDF/text)
+struct PhotoEntity: AppEntity { ... }
+
+extension PhotoEntity: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .png) { entity in try await entity.pngData() }
+        DataRepresentation(exportedContentType: .plainText) { entity in entity.caption.data(using: .utf8)! }
+    }
+}
+```
+
+For schema-adopted entities (e.g., `.photos.asset`), `Transferable` conformance is practically required - several consuming features assume it.
+
 ## Spotlight: mutating `CSSearchableItemAttributeSet` from scratch
 
 Start from `defaultAttributeSet` - the system fills in type identifiers, display metadata, and a bunch of defaults you'd otherwise forget.

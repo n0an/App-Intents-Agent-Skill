@@ -55,23 +55,92 @@ init(id: UUID, title: String?, body: String, createdAt: Date?, location: CLPlace
 
 ## Adopting intent schemas
 
-Symmetric to entities. Use `@AssistantIntent(schema:)`:
+Symmetric to entities. Use `@AssistantIntent(schema:)` or the newer `@AppIntent(schema:)` form:
 
 ```swift
-@AssistantIntent(schema: .journal.createEntry)
-struct CreateJournalEntryIntent: AppIntent {
-    static let title: LocalizedStringResource = "Create journal entry"
+@AppIntent(schema: .photos.createAssets)
+struct CreateAssetsIntent: AppIntent {
+    var files: [IntentFile]
 
-    @Parameter(title: "Title") var title: String?
-    @Parameter(title: "Body")  var body: String
-    @Parameter(title: "Date")  var date: Date?
-
-    @Dependency var store: DataStore
+    @Dependency
+    var library: MediaLibrary
 
     @MainActor
-    func perform() async throws -> some IntentResult & ReturnsValue<JournalEntryEntity> {
-        let entry = try store.createJournalEntry(title: title, body: body, createdAt: date)
-        return .result(value: entry.entity)
+    func perform() async throws -> some ReturnsValue<[AssetEntity]> {
+        guard !files.isEmpty else { throw IntentError.noEntity }
+
+        var result: [AssetEntity] = []
+        for file in files {
+            let asset = try await library.createAsset(from: file)
+            result.append(asset.entity)
+        }
+        return .result(value: result)
+    }
+}
+
+@AppIntent(schema: .photos.openAsset)
+struct OpenAssetIntent: OpenIntent {
+    var target: AssetEntity
+    @Dependency var library: MediaLibrary
+    @Dependency var navigation: NavigationManager
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        let assets = library.assets(for: [target.id])
+        guard let asset = assets.first else { throw IntentError.noEntity }
+        navigation.openAsset(asset)
+        return .result()
+    }
+}
+
+@AppIntent(schema: .photos.updateAsset)
+struct UpdateAssetIntent: AppIntent {
+    var target: [AssetEntity]
+    var name: String?
+    var isHidden: Bool?
+    var isFavorite: Bool?
+
+    @Dependency var library: MediaLibrary
+
+    func perform() async throws -> some IntentResult {
+        let assets = await library.assets(for: target.map(\.id))
+        for asset in assets {
+            if let isHidden   { try await asset.setIsHidden(isHidden) }
+            if let isFavorite { try await asset.setIsFavorite(isFavorite) }
+        }
+        return .result()
+    }
+}
+
+@AppIntent(schema: .photos.deleteAssets)
+struct DeleteAssetsIntent: DeleteIntent {
+    static let openAppWhenRun = true
+
+    var entities: [AssetEntity]
+
+    @Dependency var library: MediaLibrary
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        let ids = entities.map(\.id)
+        let assets = library.assets(for: ids)
+        try await library.deleteAssets(assets)
+        return .result()
+    }
+}
+
+@AppIntent(schema: .photos.search)
+struct SearchAssetsIntent: ShowInAppSearchResultsIntent {
+    static let searchScopes: [StringSearchScope] = [.general]
+
+    var criteria: StringSearchCriteria
+
+    @Dependency var navigation: NavigationManager
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        navigation.openSearch(with: criteria.term)
+        return .result()
     }
 }
 ```
@@ -79,8 +148,184 @@ struct CreateJournalEntryIntent: AppIntent {
 The schema dictates:
 
 - Which parameters are required/optional and what their names must be.
-- What the intent must return (often an entity of the matching schema type, e.g., a created journal entry).
-- Any domain-specific behavior (search, open, append, etc.).
+- What the intent must return (often an entity of the matching schema type).
+- Which intent subprotocol to conform to (`OpenIntent` for `.photos.openAsset`, `DeleteIntent` for `.photos.deleteAssets`, `ShowInAppSearchResultsIntent` for `.photos.search`, ...).
+
+`@AppIntent(schema:)` is the modern syntax; `@AssistantIntent(schema:)` works too and is equivalent. New code should use `@AppIntent(schema:)`.
+
+## Schema-adopted enums
+
+Enums can also declare schema adoption. The macro enforces allowed case names:
+
+```swift
+@AppEnum(schema: .photos.assetType)
+enum AssetType: String, AppEnum {
+    case photo
+    case video
+
+    static let caseDisplayRepresentations: [AssetType: DisplayRepresentation] = [
+        .photo: "Photo",
+        .video: "Video"
+    ]
+}
+```
+
+The `.photos.assetType` schema requires exactly `.photo` and `.video` cases. Adding a `.livePhoto` case without schema support won't compile; you'd need a separate non-schema enum.
+
+## Schema-adopted entities
+
+Using the entity macro in combination with a photo schema:
+
+```swift
+@AppEntity(schema: .photos.asset)
+struct AssetEntity: IndexedEntity {
+
+    static let defaultQuery = AssetQuery()
+
+    let id: String
+    let asset: Asset
+
+    @Property(title: "Title")
+    var title: String?
+
+    var creationDate: Date?
+    var location: CLPlacemark?
+    var assetType: AssetType?
+    var isFavorite: Bool
+    var isHidden: Bool
+    var hasSuggestedEdits: Bool
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: title.map { "\($0)" } ?? "Unknown",
+            subtitle: assetType?.localizedStringResource ?? "Photo"
+        )
+    }
+}
+```
+
+The schema enforces field names (`creationDate`, `location`, `isFavorite`, etc.) and their types. The macro emits compilation errors if you rename or retype.
+
+## Schema-specific intent protocols
+
+Several intent subprotocols target a specific schema behavior:
+
+### `DeleteIntent`
+
+```swift
+@AppIntent(schema: .photos.deleteAssets)
+struct DeleteAssetsIntent: DeleteIntent {
+    static let openAppWhenRun = true
+    var entities: [AssetEntity]
+    ...
+}
+```
+
+Exposes the intent as a system-standard delete action. The system may prompt for confirmation automatically before invoking `perform()`.
+
+### `ShowInAppSearchResultsIntent`
+
+```swift
+@AppIntent(schema: .photos.search)
+struct SearchAssetsIntent: ShowInAppSearchResultsIntent {
+    static let searchScopes: [StringSearchScope] = [.general]
+    var criteria: StringSearchCriteria
+    ...
+}
+```
+
+Routes a system search query into the app's in-app search UI. Siri / Spotlight / visual intelligence can invoke this so results surface inside the app's native search rather than as external cards.
+
+## Visual intelligence: `IntentValueQuery` + `@UnionValue`
+
+On iOS 18.4+, the system's **visual intelligence** feature lets a user circle an object (in the camera view or on screen) to search across apps. An app participates by implementing an `IntentValueQuery` that takes a `SemanticContentDescriptor` (carrying a pixel buffer) and returns matching entities.
+
+Declare the set of result kinds with `@UnionValue`:
+
+```swift
+#if canImport(VisualIntelligence)
+import AppIntents
+import VideoToolbox
+import VisualIntelligence
+
+@UnionValue
+enum VisualSearchResult {
+    case landmark(LandmarkEntity)
+    case collection(CollectionEntity)
+}
+
+struct LandmarkIntentValueQuery: IntentValueQuery {
+
+    @Dependency var modelData: ModelData
+
+    func values(for input: SemanticContentDescriptor) async throws -> [VisualSearchResult] {
+
+        guard let pixelBuffer: CVReadOnlyPixelBuffer = input.pixelBuffer else {
+            return []
+        }
+
+        let landmarks = try await modelData.search(matching: pixelBuffer)
+        return landmarks
+    }
+}
+#endif
+```
+
+`@UnionValue` lets one query return multiple entity types; the system displays them as a unified result list. Use one case per entity type.
+
+To route the user back into the app after they pick a result, pair the query with a schema-adopted intent:
+
+```swift
+#if canImport(VisualIntelligence)
+@AppIntent(schema: .visualIntelligence.semanticContentSearch)
+struct ShowSearchResultsIntent {
+    static let title: LocalizedStringResource = "Image Search"
+    var semanticContent: SemanticContentDescriptor
+}
+
+extension ShowSearchResultsIntent: TargetContentProvidingIntent {}
+#endif
+```
+
+Guard the whole visual-intelligence surface with `#if canImport(VisualIntelligence)` - the framework is iOS-only and relatively new.
+
+## Making onscreen content available to Siri: `userActivity(_:element:)`
+
+When an entity is visible in your UI, Siri / Apple Intelligence can refer to it ("what can I do with this photo?") if the app declares an `NSUserActivity` that links the visible view to the entity.
+
+```swift
+import SwiftUI
+
+struct AssetDetailView: View {
+    let asset: Asset
+
+    var body: some View {
+        MediaView(image: asset.image)
+            .userActivity(
+                "com.example.MyApp.ViewingPhoto",
+                element: asset.entity
+            ) { element, activity in
+                activity.title = "Viewing a photo"
+                activity.appEntityIdentifier = EntityIdentifier(for: element)
+            }
+    }
+}
+```
+
+Two required parts:
+
+- `element:` - the `AppEntity` instance the view represents.
+- `activity.appEntityIdentifier = EntityIdentifier(for: element)` - this is what lets the system correlate "the thing on screen" with a specific entity your app understands.
+
+For Siri to actually forward the entity's *content* (not just reference it), the entity must also conform to `Transferable` (see `entities.md`). Text, image, and PDF representations are the most commonly useful.
+
+A typical setup:
+
+1. Declare the entity with `@AppEntity(schema:)` or plain `AppEntity`.
+2. Conform it to `Transferable` for exportable content.
+3. Register an onscreen activity with `.userActivity(_:element:)` when the view is visible.
+
+With all three in place, Siri can answer "what is this?", forward the content to a third-party service the user taps, or use it as input to another intent - all driven by context rather than explicit commands.
 
 ## Available schemas (representative)
 
@@ -91,10 +336,11 @@ Categories (not exhaustive):
 - `.files.*` - file
 - `.journal.*` - entry, entryLocation, createEntry, updateEntry, searchEntries
 - `.mail.*` - message, account, composition
-- `.photos.*` - asset, album, person
+- `.photos.*` - asset, assetType, album, person, createAssets, openAsset, updateAsset, deleteAssets, search
 - `.presentations.*` - slide deck, slide
 - `.spreadsheets.*` - sheet, cell, range, template
 - `.systemSearch.*` - search query, search suggestion
+- `.visualIntelligence.*` - semanticContentSearch (for visual intelligence integration)
 
 Xcode 16+ ships code snippets. Type `journal` or `mail` into the editor and the completion menu offers skeletons for each schema's intents and entities; this is by far the fastest way to adopt a schema correctly given how strict the macro is.
 

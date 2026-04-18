@@ -136,6 +136,43 @@ static var parameterSummary: some ParameterSummary {
 }
 ```
 
+### Nesting `Switch` / `Case` / `When` / `otherwise`
+
+Real parameter summaries often branch on multiple axes. Nest conditions; the system picks the first branch that matches:
+
+```swift
+static var parameterSummary: some ParameterSummary {
+    Switch(\.$activity) {
+        Case(.biking) {
+            When(\.$location, .hasAnyValue) {
+                Summary("Show \(\.$activity) ideas within \(\.$searchRadius) of \(\.$location)")
+            } otherwise: {
+                When(\.$trailCollection, .hasAnyValue) {
+                    Summary("Show \(\.$activity) ideas from \(\.$trailCollection)")
+                } otherwise: {
+                    Summary("Show \(\.$activity) ideas from \(\.$trailCollection) or near \(\.$location)")
+                }
+            }
+        }
+        DefaultCase {
+            When(\.$location, .hasAnyValue) {
+                Summary("Suggest \(\.$activity) trails within \(\.$searchRadius) of \(\.$location)")
+            } otherwise: {
+                Summary("Suggest \(\.$activity) trails from \(\.$trailCollection) or near \(\.$location)")
+            }
+        }
+    }
+}
+```
+
+Predicates that go inside `When`:
+
+- `.hasAnyValue` - parameter has been set (non-nil, for optional parameters)
+- `.equalTo(value)`, `.notEqualTo(value)`, `.lessThan(value)`, `.greaterThan(value)` - comparisons
+- `.hasValue(.someEnumCase)` - enum case matching
+
+Use `DefaultCase` to cover values not explicitly listed by `Case`.
+
 ## Requesting a value mid-perform
 
 When a parameter is optional and you need it to continue, there are two mechanisms.
@@ -185,6 +222,94 @@ When a parameter has multiple plausible matches (e.g., two entities with similar
 
 ```swift
 throw $folder.needsDisambiguationError(among: candidates, dialog: "Which folder?")
+```
+
+Keep disambiguation lists small (under ~5 items). Voice-only contexts (HomePod, CarPlay) read each option aloud - a 20-item list is unusable.
+
+## `requestConfirmation` for suggested values
+
+When the user provided a close-but-not-exact match and you want to confirm before proceeding, use `$parameter.requestConfirmation(for:dialog:)`:
+
+```swift
+if let location {
+    let uniqueLocations = store.uniqueLocations
+    if !uniqueLocations.contains(location) {
+        let suggestedMatches = uniqueLocations.filter { $0.contains(location) }
+
+        if suggestedMatches.count == 1 {
+            let suggestion = suggestedMatches.first!
+            let dialog = IntentDialog("Did you mean \(suggestion)?")
+            let confirmed = try await $location.requestConfirmation(for: suggestion, dialog: dialog)
+            if confirmed {
+                self.location = suggestion
+            } else {
+                throw $location.needsValueError()
+            }
+        } else if suggestedMatches.count < 5 {
+            let dialog = IntentDialog("Multiple locations match \(location). Did you mean one of these?")
+            throw $location.needsDisambiguationError(among: suggestedMatches.sorted(), dialog: dialog)
+        } else {
+            throw $location.needsValueError(IntentDialog("No matches for \(location)."))
+        }
+    }
+}
+```
+
+Three tiers: confirm one close match, disambiguate a small set, ask again from scratch. Pattern-match on the number of candidates to pick the right UX.
+
+## `DynamicOptionsProvider` for primitive parameters
+
+`AppEnum` handles fixed sets. `AppEntity` handles identifiable things with a query. What about a parameter that's a plain `String` but should be drawn from a runtime-computed list - like a set of location names loaded from the user's own data?
+
+Provide a `DynamicOptionsProvider`:
+
+```swift
+struct LocationOptionsProvider: DynamicOptionsProvider {
+    @Dependency var store: DataStore
+
+    func results() async throws -> [String] {
+        store.uniqueLocations.sorted(using: KeyPathComparator(\.self, comparator: .localizedStandard))
+    }
+}
+```
+
+Attach it to the parameter:
+
+```swift
+@Parameter(requestValueDialog: "Where would you like to go?",
+           optionsProvider: LocationOptionsProvider())
+var location: String?
+```
+
+Shortcuts now shows a picker populated by `results()`. The user can still type an arbitrary string (the parameter's type is `String`, not an enum) - validate their input inside `perform()` and use `requestConfirmation` / disambiguation to recover from near-misses.
+
+`DynamicOptionsProvider` is right when:
+
+- The values are a constrained list, not an open-ended string.
+- The list is computed from the app's state (user-created tags, saved locations, recent recipients).
+- The values aren't identifiable entities (just strings).
+
+For identifiable domain objects, use `AppEntity` with an `EntityQuery` instead.
+
+## Measurement parameter options
+
+`Measurement` parameters accept unit and sign preferences:
+
+```swift
+@Parameter(defaultUnit: .kilometers, supportsNegativeNumbers: false)
+var searchRadius: Measurement<UnitLength>?
+```
+
+- `defaultUnit:` - the unit Shortcuts initially selects. Users can still switch units, but this is the starting point and the unit stored when no explicit unit is provided.
+- `supportsNegativeNumbers:` - disables the minus-sign toggle when the value is domain-nonsensical (a negative radius, a negative duration).
+
+Convert explicitly inside `perform()` - users may configure the shortcut in one unit but your internal data may be stored in another:
+
+```swift
+if var searchRadius {
+    searchRadius.convert(to: .meters)  // app stores data in meters
+    results = results.filter { $0.distanceToTrail.value <= searchRadius.value }
+}
 ```
 
 ## `@Parameter` vs ordinary property

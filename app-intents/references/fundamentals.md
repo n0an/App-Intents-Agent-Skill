@@ -31,7 +31,12 @@ A few more statics fine-tune how the intent presents:
 ```swift
 struct RefreshFeedIntent: AppIntent {
     static let title: LocalizedStringResource = "Refresh feed"
-    static let description = IntentDescription("Pulls the latest articles from all your subscribed sources.")
+    static let description = IntentDescription(
+        "Pulls the latest articles from all your subscribed sources.",
+        categoryName: "Reading",
+        searchKeywords: ["refresh", "sync", "fetch"],
+        resultValueName: "Articles"
+    )
     static let isDiscoverable: Bool = true   // default
     static let openAppWhenRun: Bool = false  // default
 
@@ -39,9 +44,59 @@ struct RefreshFeedIntent: AppIntent {
 }
 ```
 
-- `description: IntentDescription` - the long-form blurb shown in Shortcuts under the action title. Omit for trivial intents; include whenever the title isn't self-explanatory.
+- `description: IntentDescription` - the long-form blurb shown in Shortcuts under the action title. Accepts optional `categoryName:` (Shortcuts library category), `searchKeywords:` (extra search tokens Shortcuts matches against), and `resultValueName:` (the label used when the output of this intent is bound into another action, e.g., "Articles" in "Use Articles from Refresh Feed"). Include these whenever the intent returns a chainable value.
 - `isDiscoverable` - when `false`, the intent is invisible in the Shortcuts library and Siri suggestions. Use for helper intents that only exist to back a widget button, a snippet button, or another intent. Keeps the user-facing library clean.
 - `openAppWhenRun` - opens the app after `perform()` finishes. Prefer `OpenIntent` for user-visible navigation; reach for this only when the opening is a side-effect of a larger action.
+
+## Common intent subprotocols
+
+`AppIntent` is the baseline. Several subprotocols specialize the behavior; pick the most specific one that fits:
+
+| Protocol | Purpose |
+|---|---|
+| `AppIntent` | Generic action. |
+| `OpenIntent` | Opens the app to a specific entity (`target: MyEntity` parameter). See `open-and-snippet-intents.md`. |
+| `SnippetIntent` | Renders a snippet view only - no business logic. Paired with `ShowsSnippetIntent` results. |
+| `ForegroundContinuableIntent` | Can bring the app to the foreground mid-perform via `needsToContinueInForegroundError(...)`. For flows that require UI (login, permissions). |
+| `DeleteIntent` | Deletes one or more entities; system may prompt for confirmation automatically. |
+| `ShowInAppSearchResultsIntent` | Routes a search query into the app's own search UI. |
+| `AudioPlaybackIntent` / `AudioStartingIntent` | Plays audio; integrates with lock-screen, CarPlay. |
+| `VideoCallIntent` | Starts a video call. |
+| `CameraCaptureIntent` | Starts a camera capture flow. |
+| `URLRepresentableIntent` | Lets the system open the app via a universal link URL without your `perform()` running. Pairs with `URLRepresentableEntity`. See `open-and-snippet-intents.md`. |
+| `TargetContentProvidingIntent` | Marker protocol on iOS - tells the system this intent produces the app scene users navigated to. Needed for visual intelligence routing back into the app. |
+
+## `ForegroundContinuableIntent`
+
+Use this when an intent sometimes can complete in the background but sometimes needs the user to finish a flow in the foreground (sign-in, permissions, confirmation of a destructive action):
+
+```swift
+struct SuggestArticlesIntent: ForegroundContinuableIntent {
+    static let title: LocalizedStringResource = "Suggest articles"
+    @Dependency var account: AccountManager
+    @Dependency var navigation: NavigationModel
+
+    @Parameter var topic: String?
+
+    func perform() async throws -> some IntentResult & ReturnsValue<[ArticleEntity]> {
+        if !account.loggedIn {
+            let dialog = IntentDialog("You aren't logged in. Tap Continue to sign in.")
+            throw needsToContinueInForegroundError(dialog) {
+                // Configure app UI when the user continues
+                navigation.route = .signIn
+            }
+        }
+
+        // Regular in-background path
+        let articles = try await account.suggestions(for: topic)
+        return .result(value: articles)
+    }
+}
+```
+
+`needsToContinueInForegroundError(_:)` throws an error, stops the intent, and - if the user taps Continue - launches the app and runs the closure so the app's UI is already positioned correctly. If the user dismisses, the intent is simply cancelled.
+
+Prefer this over `openAppWhenRun = true` when the "open the app" path is conditional.
 
 ## Return-type composition
 
