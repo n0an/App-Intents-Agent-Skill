@@ -417,6 +417,52 @@ func createFolder(_ name: String) {
 
 Also call it once in `App.init()` to seed the cache on first launch.
 
+## Widget-fired intent writes to unshared storage
+
+`Button(intent:)` inside a widget fires an intent that runs in the *app's* process. The widget view lives in the *widget extension's* process. They share neither memory nor standard `UserDefaults`.
+
+```swift
+// WRONG - widget never sees the new value; TimelineProvider reads old data
+struct IncrementIntent: AppIntent {
+    static let title: LocalizedStringResource = "Increment"
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        let count = UserDefaults.standard.integer(forKey: "count")
+        UserDefaults.standard.set(count + 1, forKey: "count")
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+
+// CORRECT - both processes read/write the same suite
+enum SharedCounter {
+    private static let defaults = UserDefaults(suiteName: "group.com.example.myapp")!
+
+    static var current: Int { defaults.integer(forKey: "count") }
+    static func increment() { defaults.set(current + 1, forKey: "count") }
+}
+
+struct IncrementIntent: AppIntent {
+    static let title: LocalizedStringResource = "Increment"
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        SharedCounter.increment()
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+```
+
+Requires adding the same App Group capability to both the main app target and the widget extension target. See `open-and-snippet-intents.md` for the full pattern, including shared SwiftData stores.
+
+## `@Dependency` used in a widget-fired intent
+
+`@Dependency` reads from `AppDependencyManager`, which is populated in `App.init()`. When a widget fires an intent, the app's `init()` has run (the OS launches the app process), so `@Dependency` works - but only for app-process state. Anything stored in-memory-only (a `@State` on a view, a `@Published` on a view-model) is not shared with the widget's timeline provider running in the extension.
+
+If the widget needs to display state the intent mutated, the state must be persisted somewhere both processes can see - App Group `UserDefaults`, a shared file, or a `ModelContainer` whose URL is inside the App Group's shared container. Don't try to "inject" app-only state into the widget side through `@Dependency`.
+
 ## Missing `WidgetCenter.reloadAllTimelines()` after intent writes
 
 Widgets keep showing old data until the next scheduled refresh if the intent that wrote the data doesn't ask for a reload.

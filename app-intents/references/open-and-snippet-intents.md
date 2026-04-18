@@ -245,6 +245,94 @@ import AppIntents
 import SwiftUI
 ```
 
+### Interactive widgets: the App Group sharing pattern
+
+When `Button(intent:)` lives inside a **widget** view (not a snippet), the intent runs in the app's process while the widget view lives in the widget extension's process. They don't share memory - an in-memory `@Dependency` instance is only visible to one side, and a plain `UserDefaults.standard` write from the intent isn't visible to the widget's timeline provider.
+
+Bridge them with an App Group and `UserDefaults(suiteName:)`:
+
+1. Add the same App Group capability to both the main app target and the widget extension target.
+2. Gate shared state behind a helper that reads/writes the suited `UserDefaults`.
+3. Let the intent write through it; let the widget's `TimelineProvider` read through it.
+4. Reload timelines from the intent when the widget needs refreshing.
+
+```swift
+import AppIntents
+import WidgetKit
+
+enum SharedCounter {
+    private static let defaults = UserDefaults(suiteName: "group.com.example.myapp")!
+
+    static var current: Int {
+        defaults.integer(forKey: "count")
+    }
+
+    static func increment() {
+        defaults.set(current + 1, forKey: "count")
+    }
+}
+
+struct IncrementCounterIntent: AppIntent {
+    static let title: LocalizedStringResource = "Increment counter"
+    static let description = IntentDescription("Increments the shared counter.")
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        SharedCounter.increment()
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+```
+
+In the widget:
+
+```swift
+struct CounterProvider: TimelineProvider {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> ()) {
+        let entry = Entry(date: .now, count: SharedCounter.current)
+        completion(Timeline(entries: [entry], policy: .never))
+    }
+    ...
+}
+
+struct CounterWidgetView: View {
+    let entry: CounterProvider.Entry
+
+    var body: some View {
+        VStack {
+            Text("Count: \(entry.count)")
+            Button(intent: IncrementCounterIntent()) {
+                Text("Increment")
+            }
+        }
+        .containerBackground(.fill.tertiary, for: .widget)
+    }
+}
+```
+
+Why this works:
+
+- Both processes read and write the same defaults suite.
+- `WidgetCenter.shared.reloadAllTimelines()` inside the intent forces the widget to re-query the provider, which picks up the new value.
+- `@Dependency` can't be used on the widget side (there's no app to run `App.init()` before the widget extension starts), which is why routing through a suited `UserDefaults` (or an App Group file, or a shared SwiftData store) is mandatory - not optional.
+
+When the main app foregrounds, re-read shared state via `@Environment(\.scenePhase)` so in-app views catch up with widget-triggered changes:
+
+```swift
+@Environment(\.scenePhase) private var phase
+@State private var count = SharedCounter.current
+
+var body: some View {
+    Text("Count: \(count)")
+        .onChange(of: phase) {
+            count = SharedCounter.current
+        }
+}
+```
+
+For larger shared state, swap `UserDefaults` for a `ModelContainer` whose `ModelConfiguration` points at a URL inside the App Group's shared container - the same SwiftData sendability rules from `dependencies.md` still apply.
+
 ### Dark mode gotcha
 
 Snippets rendered by Siri do not live-update when the user toggles dark mode *while the snippet is on screen*. Dismissing and triggering again picks up the current appearance correctly.

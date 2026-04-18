@@ -115,9 +115,23 @@ struct ReaderApp: App {
 }
 ```
 
+In UIKit-lifecycle apps, call it from `application(_:didFinishLaunchingWithOptions:)` instead:
+
+```swift
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        ReaderShortcuts.updateAppShortcutParameters()
+        return true
+    }
+}
+```
+
 Call it:
 
-- Once in `App.init()` to make sure the current set is seeded.
+- Once at launch (`App.init()` in SwiftUI, `didFinishLaunching` in UIKit) to seed the current set.
 - Again whenever an entity that appears in a shortcut phrase key path changes (creation, rename, deletion).
 
 Without this, Siri-suggested phrases can point at stale entity names or offer deleted items.

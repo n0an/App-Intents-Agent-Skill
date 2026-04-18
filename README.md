@@ -24,7 +24,7 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 - **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `updateAppShortcutParameters()`, `SiriTipView`, `ShortcutsLink`
 - **Spotlight** - `IndexedEntity`, `CSSearchableIndex`, attribute sets, indexing strategies
 - **Dependencies** - `@Dependency`, `AppDependencyManager`, data-controller pattern
-- **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes
+- **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes, App Group sharing pattern for interactive widget state
 - **SwiftData** - `ModelContainer` vs `ModelContext` sendability, safe cross-actor patterns
 - **Apple Intelligence** - `@AssistantEntity` / `@AssistantIntent` schemas for journal, photos, mail, etc.
 - **Anti-patterns** - catches `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `isDiscoverable` on helpers, stale widgets, stale shortcut parameters, and more
