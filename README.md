@@ -16,16 +16,18 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 
 ## What It Covers
 
-- **Intents** - `AppIntent`, `OpenIntent`, snippet views, dialog, grammar agreement, return types
-- **Parameters** - `@Parameter`, primitives, entity parameters, `@AppEnum`, parameter prompts
+- **Intents** - `AppIntent`, `OpenIntent`, `SnippetIntent`, dialog, grammar agreement, return types, `IntentDescription`, `isDiscoverable`
+- **Parameters** - `@Parameter`, primitives, entity parameters, `@AppEnum` (`typeDisplayName`), parameter prompts, `requestValue` vs `needsValueError`
 - **Entities** - `AppEntity`, `IndexedEntity`, the shadow-struct pattern for SwiftData, display representations
 - **Queries** - `EnumerableEntityQuery`, `EntityQuery`, `EntityStringQuery`, `UniqueIDEntityQuery`
-- **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `SiriTipView`, `ShortcutsLink`
+- **Snippets + Buttons** - `ShowsSnippetView` (inline), `ShowsSnippetIntent` + `SnippetIntent` (indirect), `Button(intent:)` in SwiftUI/widgets
+- **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `updateAppShortcutParameters()`, `SiriTipView`, `ShortcutsLink`
 - **Spotlight** - `IndexedEntity`, `CSSearchableIndex`, attribute sets, indexing strategies
 - **Dependencies** - `@Dependency`, `AppDependencyManager`, data-controller pattern
+- **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes
 - **SwiftData** - `ModelContainer` vs `ModelContext` sendability, safe cross-actor patterns
 - **Apple Intelligence** - `@AssistantEntity` / `@AssistantIntent` schemas for journal, photos, mail, etc.
-- **Anti-patterns** - catches `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, passing `ModelContext` across actors, and more
+- **Anti-patterns** - catches `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `isDiscoverable` on helpers, stale widgets, stale shortcut parameters, and more
 
 
 ## Installing

@@ -97,6 +97,31 @@ AppShortcut(
 
 `\(\.$query)` is a parameter key path - the user's utterance fills it in.
 
+### Refreshing parameter-driven phrases: `updateAppShortcutParameters()`
+
+When a phrase uses a key path to an entity parameter (e.g., `\(\.$folder)`), the system caches the list of candidate values it will show. When your underlying entity data changes - a new folder is added, a bookmark is renamed - call `updateAppShortcutParameters()` to invalidate the cache:
+
+```swift
+@main
+struct ReaderApp: App {
+    init() {
+        ReaderShortcuts.updateAppShortcutParameters()
+
+        let store = DataStore(...)
+        self._store = .init(initialValue: store)
+        AppDependencyManager.shared.add(dependency: store)
+    }
+    ...
+}
+```
+
+Call it:
+
+- Once in `App.init()` to make sure the current set is seeded.
+- Again whenever an entity that appears in a shortcut phrase key path changes (creation, rename, deletion).
+
+Without this, Siri-suggested phrases can point at stale entity names or offer deleted items.
+
 ## `shortcutTileColor`
 
 ```swift

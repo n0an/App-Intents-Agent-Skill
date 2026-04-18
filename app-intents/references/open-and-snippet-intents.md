@@ -1,9 +1,10 @@
 # Open intents and snippet views
 
-Two different shapes for "bring a thing to the user":
+Three shapes for "bring a thing to the user":
 
 - `OpenIntent` - **launch the app and navigate to the thing**. Good when the user wants to interact (edit, reply, continue reading).
-- `AppIntent & ShowsSnippetView` - **show a summary right there**, no app switch. Good when the user wants information, not interaction.
+- `AppIntent & ShowsSnippetView` - **show a summary right there** with the snippet view returned directly from `perform()`. Good for self-contained one-shot answers.
+- `AppIntent & ShowsSnippetIntent` + a separate `SnippetIntent` - **show a summary that stays live and can re-fire**. The business intent returns a value; a paired `SnippetIntent` renders the UI. This is the modern pattern for snippets with interactive content (buttons that fire more intents).
 
 They can coexist; pick per use case.
 
@@ -69,9 +70,11 @@ Inject `AppNavigator` through `@Dependency` so intents can reach it. See `depend
 
 `OpenIntent` works even when the app has never been launched. The app process starts, `App.init()` runs (registering dependencies), the intent fires, navigation state is set, then the window appears on screen already at the right place. This is why **all cross-intent setup belongs in `App.init()`** - not in `.onAppear`, not in view modifiers.
 
-## Snippet views
+## Snippet views (inline): `ShowsSnippetView`
 
 A snippet view is a compact SwiftUI scene rendered by the system in response to the intent. The user doesn't leave their current context; they just see the answer.
+
+The inline form returns the view directly from the business intent's `perform()`:
 
 ```swift
 import AppIntents
@@ -99,6 +102,140 @@ struct SummarizeArticleIntent: AppIntent {
 
 The snippet is encoded and transferred like a widget. Don't use `List`, `ScrollView`, or any interactive control that needs a live `UIViewController` behind it - they will either fail to render or behave oddly. Stick to static layout: `VStack`, `HStack`, `Text`, `Image`, `Label`, `Spacer`, backgrounds, padding.
 
+## Snippet intents (indirect): `ShowsSnippetIntent` + `SnippetIntent`
+
+The modern pattern splits concerns: the business intent returns a chainable value; a paired `SnippetIntent` renders the UI. This is the right shape when:
+
+- The snippet contains `Button(intent:)` (see below) so it can re-fire and refresh itself.
+- You want the intent to return a value Shortcuts can chain, *and* show a snippet.
+- The snippet will be reused from multiple business intents.
+
+```swift
+import AppIntents
+import SwiftUI
+
+// 1. Business intent: returns a value and references the snippet intent
+struct GetCaffeineIntent: AppIntent {
+    static let title: LocalizedStringResource = "Get caffeine intake"
+    static let description = IntentDescription("Shows how much caffeine you've had today.")
+
+    @Dependency var store: DataStore
+
+    func perform() async throws -> some IntentResult & ReturnsValue<Double> & ShowsSnippetIntent {
+        let amount = await store.amountIngested
+        return .result(
+            value: amount,
+            snippetIntent: ShowCaffeineIntakeSnippetIntent()
+        )
+    }
+}
+
+// 2. Snippet intent: not discoverable, only renders UI
+struct ShowCaffeineIntakeSnippetIntent: SnippetIntent {
+    static let title: LocalizedStringResource = "Caffeine snippet"
+    static let isDiscoverable: Bool = false
+
+    @Dependency var store: DataStore
+
+    func perform() async throws -> some IntentResult & ShowsSnippetView {
+        .result(view: CaffeineIntakeSnip(store: store))
+    }
+}
+
+// 3. The view can contain interactive intents
+struct CaffeineIntakeSnip: View {
+    let store: DataStore
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Today's caffeine").font(.subheadline).foregroundStyle(.secondary)
+            Text(store.formattedAmount())
+                .font(.title)
+                .contentTransition(.numericText())
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.bottom, 12)
+
+            Text("Quick log").font(.subheadline).foregroundStyle(.secondary)
+            HStack {
+                Button(intent: LogAmountIntent(amount: 64))  { Text("Single") }
+                Spacer()
+                Button(intent: LogAmountIntent(amount: 128)) { Text("Double") }
+                Spacer()
+                Button(intent: LogAmountIntent(amount: 192)) { Text("Triple") }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .background(Color(uiColor: .secondarySystemBackground).gradient)
+        .clipShape(.containerRelative)
+    }
+}
+```
+
+When the user taps one of the `Button(intent:)` buttons, the system fires `LogAmountIntent`, then re-runs `ShowCaffeineIntakeSnippetIntent` to refresh the snippet in place. The user never leaves Siri/Shortcuts.
+
+Key rules:
+
+- Mark `SnippetIntent` types with `isDiscoverable = false`. They're an implementation detail; don't pollute the Shortcuts library.
+- The snippet intent's `perform()` returns `some IntentResult & ShowsSnippetView`. The view it returns goes through the same "widget-style" render pipeline as inline snippets.
+- `.result(value:snippetIntent:)` accepts the snippet intent *instance*, not type - create a new one each time.
+
+## `Button(intent:)` in SwiftUI
+
+SwiftUI ships a `Button` initializer that takes an `AppIntent` and fires it on tap. Works inside:
+
+- Widget views (home, lock screen, StandBy, Control Center).
+- App Intent snippet views.
+- Live Activities.
+- Regular app views (convenient; identical behavior to a plain closure-based button in that context).
+
+```swift
+Button(intent: LogAmountIntent(amount: 64)) {
+    Text("Single")
+}
+```
+
+Requirements on the intent:
+
+1. It's an `AppIntent` (or subprotocol).
+2. It has a matching convenience initializer so you can construct it parameterized:
+
+```swift
+extension LogAmountIntent {
+    init(amount: Int) { self.amount = amount }
+}
+```
+
+3. For buttons inside snippets/widgets, mark it `isDiscoverable = false` unless you also want it in the Shortcuts library.
+
+The intent's `perform()` runs in the app's intent extension context, not the widget's; writes go to the shared data store. After it returns, the host (widget/snippet) re-renders.
+
+### Button style inside snippets
+
+SwiftUI button styles applied to `Button(intent:)` work the same as in regular views. Custom styles animate correctly, including the press/scale effect:
+
+```swift
+struct IntentScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .fontWeight(.semibold)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                LinearGradient(
+                    colors: [.blue.opacity(0.8), .blue],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(Capsule())
+            .scaleEffect(configuration.isPressed ? 0.86 : 1.0)
+            .animation(.easeInOut(duration: 0.24), value: configuration.isPressed)
+    }
+}
+```
+
 ### Snippet-only imports
 
 The file producing a snippet needs both frameworks:
@@ -112,16 +249,20 @@ import SwiftUI
 
 Snippets rendered by Siri do not live-update when the user toggles dark mode *while the snippet is on screen*. Dismissing and triggering again picks up the current appearance correctly.
 
-## OpenIntent vs Snippet - picking the right one
+## Picking the right shape
 
 | Situation | Pick |
 |---|---|
 | User will read, interact, edit | `OpenIntent` |
-| User wants a one-shot fact or summary | `AppIntent & ShowsSnippetView` |
-| User wants a value to chain in Shortcuts | `AppIntent & ReturnsValue` |
+| One-shot summary, no re-fire, no value to chain | `AppIntent & ShowsSnippetView` (inline) |
+| Summary with interactive buttons that re-render | `AppIntent & ShowsSnippetIntent` + `SnippetIntent` |
+| User wants a value to chain in Shortcuts | `AppIntent & ReturnsValue<T>` |
+| Snippet *and* a chainable value | `AppIntent & ReturnsValue<T> & ShowsSnippetIntent` |
 | Simple confirmation ("Done") | `AppIntent & ProvidesDialog` |
 
 For "show me my latest note" - a snippet is usually better, because the point is to read it, not to edit it. For "open my latest note so I can keep writing" - use `OpenIntent`.
+
+For "show my dashboard and let me log from it" - use the two-intent snippet pattern, so buttons in the snippet can fire more intents and refresh the view in place.
 
 ## Bridging Spotlight selection to `OpenIntent`
 

@@ -85,7 +85,8 @@ For fixed-set parameters, declare an `AppEnum`:
 enum PriorityLevel: String, AppEnum {
     case low, normal, high
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Priority"
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = .init(name: "Priority")
+    static let typeDisplayName: LocalizedStringResource = "Priority"
     static let caseDisplayRepresentations: [PriorityLevel: DisplayRepresentation] = [
         .low: "Low",
         .normal: "Normal",
@@ -93,6 +94,13 @@ enum PriorityLevel: String, AppEnum {
     ]
 }
 ```
+
+`typeDisplayRepresentation` and `typeDisplayName` look similar but serve different surfaces:
+
+- `typeDisplayRepresentation` - used everywhere an entity/enum type is shown with a label and optional image (pickers, parameter cards).
+- `typeDisplayName` - short `LocalizedStringResource`; used in inline contexts where only a plain label fits (Siri spoken prompts, parameter summaries).
+
+Provide both on any enum or entity that will be user-facing. The initializer shorthand `.init(name: "Priority")` is equivalent to constructing a `TypeDisplayRepresentation` directly.
 
 Enums show as nice pickers in Shortcuts, are speakable by Siri, and are chainable in automation.
 
@@ -130,7 +138,31 @@ static var parameterSummary: some ParameterSummary {
 
 ## Requesting a value mid-perform
 
-If a parameter is optional and you need it to continue, throw a needs-value error:
+When a parameter is optional and you need it to continue, there are two mechanisms.
+
+### `requestValue` - ask and receive inline
+
+Prompt the user and `await` the result without re-entering `perform()`:
+
+```swift
+@Parameter(title: "Shots") var shots: EspressoShot?
+
+func perform() async throws -> some IntentResult & ProvidesDialog {
+    if shots == nil {
+        shots = try await $shots.requestValue("How many shots?")
+    }
+
+    // shots is guaranteed non-nil here
+    try store.log(shots!)
+    return .result(dialog: "Done.")
+}
+```
+
+This is the cleanest option when you need the value partway through a larger flow. The prompt happens inline, the user answers, execution continues.
+
+### `needsValueError` - bail and let the system re-invoke
+
+Throw to signal "I can't proceed without this"; the system re-prompts and calls `perform()` again from the top:
 
 ```swift
 @Parameter(title: "Folder") var folder: FolderEntity?
@@ -143,7 +175,9 @@ func perform() async throws -> some IntentResult {
 }
 ```
 
-The system re-prompts the user, then re-invokes `perform()` with the value filled.
+Use this when there's no point doing any work without the value. Anything you did before the throw is discarded on re-invocation.
+
+`requestValue` is newer and usually nicer ergonomically. `needsValueError` is older but still works, and is the only option if you want the system to record the prompt as a first-class "needs input" step in a Shortcuts automation.
 
 ## Disambiguation
 
@@ -156,6 +190,33 @@ throw $folder.needsDisambiguationError(among: candidates, dialog: "Which folder?
 ## `@Parameter` vs ordinary property
 
 Only `@Parameter`-annotated properties are exposed to the system. Ordinary properties are fine for local caching inside `perform()` but are invisible to Shortcuts, Siri, and the parameter-prompt system.
+
+## Omitting `title:` on internal intents
+
+For intents with `isDiscoverable = false` (helper intents that back a button, a snippet, or another intent), `@Parameter` without a `title:` is fine - no one will ever see the parameter UI:
+
+```swift
+struct LogAmountIntent: AppIntent {
+    static let title: LocalizedStringResource = "Log caffeine amount"
+    static let isDiscoverable: Bool = false
+
+    @Parameter var amount: Int
+    @Dependency var store: DataStore
+
+    func perform() async throws -> some IntentResult {
+        try store.log(Double(amount))
+        return .result()
+    }
+}
+
+extension LogAmountIntent {
+    init(amount: Int) {
+        self.amount = amount
+    }
+}
+```
+
+The trailing `init(amount: Int)` is what lets SwiftUI code write `Button(intent: LogAmountIntent(amount: 64))` (see `open-and-snippet-intents.md`). Always add it for intents that take parameters and back buttons - you can't pass a parameter any other way.
 
 ## Entity-to-entity relationships
 

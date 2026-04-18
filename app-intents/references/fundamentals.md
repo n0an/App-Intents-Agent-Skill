@@ -24,6 +24,25 @@ Three required pieces:
 
 `LocalizedStringResource` integrates with string catalogs and with SwiftUI's localization pipeline, so localized strings work everywhere App Intents displays them.
 
+## Optional static metadata
+
+A few more statics fine-tune how the intent presents:
+
+```swift
+struct RefreshFeedIntent: AppIntent {
+    static let title: LocalizedStringResource = "Refresh feed"
+    static let description = IntentDescription("Pulls the latest articles from all your subscribed sources.")
+    static let isDiscoverable: Bool = true   // default
+    static let openAppWhenRun: Bool = false  // default
+
+    func perform() async throws -> some IntentResult { .result() }
+}
+```
+
+- `description: IntentDescription` - the long-form blurb shown in Shortcuts under the action title. Omit for trivial intents; include whenever the title isn't self-explanatory.
+- `isDiscoverable` - when `false`, the intent is invisible in the Shortcuts library and Siri suggestions. Use for helper intents that only exist to back a widget button, a snippet button, or another intent. Keeps the user-facing library clean.
+- `openAppWhenRun` - opens the app after `perform()` finishes. Prefer `OpenIntent` for user-visible navigation; reach for this only when the opening is a side-effect of a larger action.
+
 ## Return-type composition
 
 `some IntentResult` is the base. Compose additional capabilities with `&`:
@@ -118,6 +137,31 @@ return .result(dialog: dialog)
 ```
 
 Siri chooses which variant to use based on context (voice vs. screen, short vs. long).
+
+## Refreshing widgets and controls after state changes
+
+When `perform()` mutates data that widgets, control widgets, or live activities display, reload their timelines before returning:
+
+```swift
+import AppIntents
+import WidgetKit
+
+struct AddBookmarkIntent: AppIntent {
+    static let title: LocalizedStringResource = "Add bookmark"
+
+    @Parameter(title: "URL") var url: URL
+    @Dependency var store: DataStore
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        try store.addBookmark(url: url)
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result(dialog: "Saved.")
+    }
+}
+```
+
+`WidgetCenter.shared.reloadAllTimelines()` tells the system every registered widget is stale. For fine-grained reloads use `reloadTimelines(ofKind:)` with the widget kind string. Do this inside `perform()`, before returning - otherwise the widget keeps showing pre-change state until the next refresh tick.
 
 ## Errors
 

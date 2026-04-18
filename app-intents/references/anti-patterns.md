@@ -338,6 +338,108 @@ struct OpenArticleIntent: OpenIntent {
 }
 ```
 
+## Helper intents pollute the Shortcuts library (missing `isDiscoverable = false`)
+
+Intents that only exist to back a widget button, snippet button, or another intent should not show up in the user's Shortcuts library.
+
+```swift
+// WRONG - shows up in Shortcuts even though it's an implementation detail
+struct LogAmountIntent: AppIntent {
+    static let title: LocalizedStringResource = "Log caffeine amount"
+    @Parameter var amount: Int
+    ...
+}
+
+// CORRECT
+struct LogAmountIntent: AppIntent {
+    static let title: LocalizedStringResource = "Log caffeine amount"
+    static let isDiscoverable: Bool = false
+    @Parameter var amount: Int
+    ...
+}
+```
+
+Same rule for `SnippetIntent` types used indirectly via `ShowsSnippetIntent` - they're always internal and must be `isDiscoverable = false`.
+
+## `Button(intent:)` without a matching init
+
+`Button(intent:)` takes an intent *instance*. If the intent has parameters, you need a convenience init that accepts them:
+
+```swift
+struct LogAmountIntent: AppIntent {
+    static let title: LocalizedStringResource = "Log amount"
+    static let isDiscoverable: Bool = false
+    @Parameter var amount: Int
+    ...
+}
+
+// WRONG - can't construct LogAmountIntent(amount:) without the extra init
+Button(intent: LogAmountIntent(amount: 64)) { Text("Single") }   // won't compile
+
+// Fix: add the init
+extension LogAmountIntent {
+    init(amount: Int) { self.amount = amount }
+}
+```
+
+Don't try to work around it by assigning to `@Parameter`-wrapped properties after construction from outside; use the custom init.
+
+## Using `ShowsSnippetView` where `ShowsSnippetIntent` is cleaner
+
+Inline `ShowsSnippetView` works, but it binds the snippet's UI to the business intent's `perform()`. If the snippet contains interactive buttons (`Button(intent:)`) that need to refresh the view after they fire, prefer the two-intent pattern:
+
+```swift
+// OK, but rigid - fine for static summaries
+func perform() async throws -> some IntentResult & ShowsSnippetView {
+    .result { SummaryView(data: ...) }
+}
+
+// BETTER when the snippet has Button(intent:) inside it
+func perform() async throws -> some IntentResult & ReturnsValue<Int> & ShowsSnippetIntent {
+    .result(value: count, snippetIntent: DashboardSnippet())
+}
+```
+
+The two-intent form lets the snippet re-render in place when its buttons fire; the inline form can't.
+
+## Forgetting `updateAppShortcutParameters()` after entity changes
+
+Shortcut phrases that reference entity parameters (e.g., `"Open \(\.$folder) in \(.applicationName)"`) cache the candidate list. When a folder is renamed or a new one is added, Siri-suggested phrases can show stale or missing values.
+
+```swift
+// Add after any change that affects the parameter's candidate list
+func createFolder(_ name: String) {
+    store.insert(Folder(name: name))
+    try? modelContext.save()
+    ReaderShortcuts.updateAppShortcutParameters()   // refresh phrase cache
+}
+```
+
+Also call it once in `App.init()` to seed the cache on first launch.
+
+## Missing `WidgetCenter.reloadAllTimelines()` after intent writes
+
+Widgets keep showing old data until the next scheduled refresh if the intent that wrote the data doesn't ask for a reload.
+
+```swift
+// WRONG - widget is stale until the next scheduled refresh
+@MainActor
+func perform() async throws -> some IntentResult {
+    try store.log(amount)
+    return .result()
+}
+
+// CORRECT
+@MainActor
+func perform() async throws -> some IntentResult {
+    try store.log(amount)
+    WidgetCenter.shared.reloadAllTimelines()
+    return .result()
+}
+```
+
+For apps with many widget kinds, use `reloadTimelines(ofKind:)` to avoid unnecessary work.
+
 ## Spotlight: mutating `CSSearchableItemAttributeSet` from scratch
 
 Start from `defaultAttributeSet` - the system fills in type identifiers, display metadata, and a bunch of defaults you'd otherwise forget.
