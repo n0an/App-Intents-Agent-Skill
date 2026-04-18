@@ -230,6 +230,18 @@ On a real device, saying "what can I do here?" to Siri asks the OS to scan the c
 
 `AppShortcut` takes an optional `parameterPresentation` to change how Shortcuts renders parameter pickers for that specific phrase. Use it to pre-fill parameter labels or example values. It's sparsely documented; reach for it only when default rendering is insufficient.
 
+## Debugging in the simulator
+
+Siri voice activation in the simulator is noticeably unreliable. If a phrase that worked yesterday stops working today:
+
+- **Erase and reinstall.** Device → Erase All Content and Settings often clears cached phrase registrations that got stale.
+- **Retry several times.** Voice recognition on the simulator can fail on the first or second attempt even when correctly configured.
+- **Switch to typed Siri.** Settings → Accessibility → Siri → Type to Siri. Bypasses voice recognition entirely; proves whether the issue is speech or intent wiring.
+- **Use Xcode's App Shortcuts Preview tool** (macOS Sonoma + Xcode 15+). It tests phrase matching directly, with no voice path at all.
+- **Check the App Shortcuts Preview metadata warnings.** The tool reports when phrases fail the `\(.applicationName)` validation or other macro-enforced rules.
+
+On-device is generally more reliable than the simulator for end-to-end Siri testing. When simulator behavior is inconsistent and on-device works, trust the device.
+
 ## Platform-specific behavior
 
 ### watchOS

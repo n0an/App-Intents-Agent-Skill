@@ -172,6 +172,21 @@ App Intents metadata is extracted at build time by the Swift compiler. Localized
 
 On iOS 17+ use the dedicated `AppShortcuts` String Catalog for shortcut phrases (see `shortcuts-and-siri.md`) - it removes the per-locale phrase-count limit that used to apply to Swift-declared phrases.
 
+## Intents as the app's canonical action layer
+
+Beyond Siri / Shortcuts / Spotlight exposure, intents also work well as your app's internal action vocabulary. When every user-facing action goes through an intent, the same types power:
+
+- Siri and Shortcuts invocations.
+- Widget `Button(intent:)` taps.
+- Control Center controls.
+- Live Activity buttons.
+- Deep-link routing (via `OpenIntent` + `URLRepresentableIntent`).
+- In-app SwiftUI `Button(intent:)` in views where it's convenient.
+
+The single intent definition covers all of these without duplicated action-handling code. Even intents marked `isDiscoverable = false` (invisible to users in the Shortcuts library) still pay off because widgets, controls, and in-app buttons can invoke them.
+
+This is a design choice, not a framework requirement - but when you adopt it, refactors become easier: you move an action into an intent once, and every surface that needs that action uses the same code path.
+
 ## "Everything should be an App Intent"
 
 Apple's design guidance shifted at WWDC24: instead of exposing only the one or two most-habitual actions, treat every meaningful thing the app does as a potential intent. Caveats:

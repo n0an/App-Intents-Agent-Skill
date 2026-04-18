@@ -70,6 +70,16 @@ When a shortcut fires, the OS launches the app process and runs `App.init()` eve
 
 What does **not** run: `.task`, `.onAppear`, `@StateObject` init closures inside views. If you rely on those for intent-needed setup, the intent will crash or see stale state.
 
+### Process boundaries: app vs extension
+
+When the `AppShortcutsProvider` is in the main app target, the intent runs in the main app process (after `App.init()`). When it's in an App Intents extension (iOS 17+, see "Shared framework extraction" below), the intent runs in a separate, lighter extension process:
+
+- Extension process does **not** share memory with the main app. Singleton state built up in the main app's UI is invisible to the extension.
+- Extension process still runs its own `App.init()` or extension-principal initializer, so `@Dependency` wiring works the same way *within* that process.
+- Writes to shared storage (App Group `UserDefaults`, App Group file URLs, `ModelContainer` pointed at an App Group URL) are visible to both processes.
+
+Practical implication: treat each intent's collaborators as newly-initialized-per-invocation. Don't cache expensive objects in static vars expecting them to persist across intent runs - the extension is short-lived and may be torn down between invocations. Prefer registering fresh instances through `@Dependency` and letting the platform manage lifetime.
+
 ## Data-controller skeleton
 
 A data controller concentrates all SwiftData (or network) access in one place so intents don't re-invent queries:

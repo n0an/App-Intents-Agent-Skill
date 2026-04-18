@@ -69,6 +69,47 @@ var priority: PriorityLevel  // an AppEnum
 var attachment: IntentFile
 ```
 
+### Auto-chaining in Shortcuts: `inputConnectionBehavior`
+
+When an intent is likely to run *after* another action in a Shortcuts workflow, declare that the parameter should auto-wire to the previous result:
+
+```swift
+@Parameter(
+    title: "Image",
+    supportedTypeIdentifiers: ["public.image"],
+    inputConnectionBehavior: .connectToPreviousIntentResult
+)
+var image: IntentFile
+```
+
+Shortcuts will then default the field to "Image from [previous action]" when the user drops this action into a workflow. The user can still override; the attribute just picks a better default.
+
+Use `.connectToPreviousIntentResult` for parameters that are commonly the output of the preceding action (an image for a "Resize image" intent, an entity for a "Mark as favorite" intent). Leave the default for parameters where manual configuration is expected.
+
+### Working with `IntentFile` parameters
+
+`IntentFile` exposes three access paths:
+
+```swift
+func perform() async throws -> some IntentResult {
+    // Path on disk - most common for writable or large-file operations
+    if let url = image.fileURL {
+        try await processor.convert(fileAt: url)
+    } else {
+        // Data in memory - when the file came from a transient source
+        let data = try image.data(contentType: .image)
+        try await processor.process(data: data)
+    }
+    return .result()
+}
+```
+
+- `fileURL: URL?` - set when the file lives on disk (document picker, Files app). `nil` for transient data.
+- `data(contentType:)` - fetches the underlying bytes; may load from disk or memory.
+- `filename: String` - the file's display name.
+
+Prefer `fileURL` when present to avoid double-loading large files into memory.
+
 ## Entity parameters
 
 Any `AppEntity` can be a parameter. The system uses the entity's `defaultQuery` to populate a picker and to resolve user speech to a specific entity:
