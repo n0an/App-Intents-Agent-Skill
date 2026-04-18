@@ -289,7 +289,7 @@ Routes a system search query into the app's in-app search UI. Siri / Spotlight /
 
 ## Apple Intelligence through Shortcuts: the Use Model action
 
-iOS 19+. Shortcuts ships a **Use Model** action that invokes on-device, Private Cloud Compute, or ChatGPT models, with App Entities as input and output:
+iOS 26+. Shortcuts ships a **Use Model** action that invokes on-device, Private Cloud Compute, or ChatGPT models, with App Entities as input and output:
 
 - **App entity input** - the Shortcuts runtime serializes the entity to JSON (its display representation, type name, and exposed `@Property` values) and passes that to the model as context.
 - **Output** - the model can emit text, dictionaries, booleans, or an App Entity of a type you declare. Downstream intents receive it as a typed value.

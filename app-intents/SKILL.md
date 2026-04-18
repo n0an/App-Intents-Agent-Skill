@@ -19,9 +19,162 @@ Review process:
 1. Check dependency injection and the data-controller pattern using `references/dependencies.md`.
 1. Validate Spotlight indexing via `IndexedEntity` and attribute sets using `references/spotlight.md`.
 1. Check `@AssistantEntity` / `@AssistantIntent` schema adoption using `references/assistant-schemas.md`.
+1. If writing or reviewing tests for intents, use `references/testing-intents.md`.
 1. Catch common mistakes using `references/anti-patterns.md`.
 
 If doing partial work, load only the relevant reference files.
+
+
+## Task-based routing
+
+Match the user's goal to the read order. Load only what you need.
+
+### "Create my first App Intent"
+1. `references/fundamentals.md` - protocol, `perform()`, return types
+2. `references/shortcuts-and-siri.md` - register it so it shows up
+
+### "Add a parameter the user picks in Shortcuts"
+1. `references/parameters.md` - `@Parameter`, prompts, disambiguation
+2. `references/entities.md` - if the parameter is a domain entity
+
+### "Make my app's data searchable from Siri / Spotlight"
+1. `references/entities.md` - `AppEntity`, `IndexedEntity`, `@Property`
+2. `references/spotlight.md` - indexing strategies, attribute sets
+3. `references/shortcuts-and-siri.md` - flexible matching, phrase rules
+
+### "Show a summary / interactive view when Siri runs my intent"
+1. `references/open-and-snippet-intents.md` - inline vs indirect snippets, `SnippetIntent`, `Button(intent:)`
+2. `references/fundamentals.md` - return types and snippet design rules
+
+### "Open a specific thing in my app from Siri / Shortcuts"
+1. `references/open-and-snippet-intents.md` - `OpenIntent`, `URLRepresentableIntent`, `TargetContentProvidingIntent`
+2. `references/dependencies.md` - navigator / scene routing
+
+### "Integrate with Apple Intelligence"
+1. `references/assistant-schemas.md` - schema macros, domains, Use Model action, onscreen content
+2. `references/entities.md` - `@Property`, `Transferable` (required for several schemas)
+
+### "Support Visual Intelligence / image search"
+1. `references/assistant-schemas.md` - `IntentValueQuery`, `SemanticContentDescriptor`, `@UnionValue`
+2. `references/entities.md` - `Transferable` + `OpenIntent` pairing
+
+### "Build an interactive widget or Control Center control"
+1. `references/open-and-snippet-intents.md` - `Button(intent:)`, `WidgetConfigurationIntent`, `ControlConfigurationIntent`, `ControlWidgetButton`
+2. `references/dependencies.md` - App Group shared storage, process boundaries
+
+### "Structure my app around App Intents"
+1. `references/fundamentals.md` - intents as canonical action layer
+2. `references/dependencies.md` - `@Dependency`, cross-module `AppIntentsPackage`
+3. `references/entities.md` - entity-as-bridge pattern
+
+### "Test my App Intents"
+1. `references/testing-intents.md` - unit tests, mocking `@Dependency`, what you can't test
+
+### "I'm hitting build errors or runtime bugs"
+1. `references/anti-patterns.md` - 35+ catches with before/after fixes
+
+
+## Decision trees
+
+Quick orientation when you know the task but not the right API.
+
+### Which intent protocol should I conform to?
+
+```
+Generic action?
+  → AppIntent
+
+Opens the app to a specific entity?
+  → OpenIntent (+ TargetContentProvidingIntent on iOS)
+
+Renders an interactive view only, no business logic?
+  → SnippetIntent
+
+Needs to bring the app forward conditionally?
+  → AppIntent with supportedModes (iOS 26+)
+  → or ForegroundContinuableIntent (iOS 17-18)
+
+Deletes entities with standard confirmation?
+  → DeleteIntent
+
+Routes a search query into the app?
+  → ShowInAppSearchResultsIntent
+
+Backs widget configuration?
+  → WidgetConfigurationIntent (empty conformance, no perform)
+
+Backs a Control Center control?
+  → ControlConfigurationIntent
+
+Has a universal-link URL representation?
+  → URLRepresentableIntent + OpenIntent (no perform needed)
+
+Matches an Apple Intelligence domain?
+  → AppIntent + @AppIntent(schema: .domain.action)
+```
+
+### Which entity type should I use?
+
+```
+Fixed set known at compile time?
+  → AppEnum
+
+Dynamic data with a persistent id?
+  → AppEntity
+
+Entity must appear in Spotlight?
+  → AppEntity + IndexedEntity
+
+Entity IS a file (scan, voice memo, exported image)?
+  → FileEntity
+
+Computed / aggregated data with no stable id?
+  → TransientAppEntity
+
+Needs Apple Intelligence schema awareness?
+  → AppEntity + @AppEntity(schema: .domain.type)
+
+Supports cross-app sharing?
+  → AppEntity + Transferable
+```
+
+### Which query should my entity use?
+
+```
+Small fixed set, enumerable?
+  → EnumerableEntityQuery (also gets a basic Find intent)
+
+Large dataset, searchable by name?
+  → EntityQuery + EntityStringQuery
+
+Many queryable properties, user should build predicates?
+  → EntityPropertyQuery (auto-generates Find intent with comparators + sort)
+
+Simple id-only lookup, no search?
+  → UniqueIDEntityQuery
+
+Visual intelligence / image search?
+  → IntentValueQuery + SemanticContentDescriptor
+```
+
+### Which property wrapper should I use on entity fields?
+
+```
+Stored on the entity struct, should appear in Shortcuts/Find/summary?
+  → @Property
+
+Derived from an underlying model object (cheap to compute)?
+  → @ComputedProperty (preferred over @Property for wrappers around models)
+
+Derived AND should be indexed in Spotlight?
+  → @ComputedProperty(indexingKey: \.keyName)
+
+Expensive to compute (network, ML inference, heavy query)?
+  → @DeferredProperty (async getter, only runs when system asks)
+
+Internal to the entity, not shown anywhere?
+  → plain stored property (no wrapper)
+```
 
 
 ## Core Instructions
@@ -47,7 +200,7 @@ If doing partial work, load only the relevant reference files.
 - `SnippetIntent.perform()` is called multiple times per user interaction (initial show, after each button tap, on appearance changes, on `reload()`). Keep it pure: read state, assemble the view, return. Never mutate app state or kick off slow work inside a snippet intent's `perform()`.
 - Respect hard limits: 10 `AppShortcut`s per app, 1000 total trigger phrases (including parameter expansions). The first phrase in each shortcut's array is the primary one - it's shown on the Shortcuts home tile and as Siri's "what can I do with X?" answer.
 - Include at least one non-parameterized phrase per App Shortcut so it's discoverable before first launch; parameterized phrases don't appear in Spotlight until the app has run once and populated the parameter cache.
-- Prefer `supportedModes` + `continueInForeground` (iOS 19+) over `ForegroundContinuableIntent` / `needsToContinueInForegroundError` for new code that conditionally foregrounds. The newer form lets one intent declare it may run background or foreground based on runtime state.
+- Prefer `supportedModes` + `continueInForeground` (iOS 26+) over `ForegroundContinuableIntent` / `needsToContinueInForegroundError` for new code that conditionally foregrounds. The newer form lets one intent declare it may run background or foreground based on runtime state.
 - Snippet views have a 340-point height ceiling; beyond this, scrolling breaks the glance overlay model. Link to the full app for deep content, and keep snippet text larger than system defaults for legibility at reading distance.
 - For text parameters that may receive input from Apple Intelligence's Use Model action, declare the type as `AttributedString` rather than `String` so rich formatting (bold, italic, lists, tables) is preserved losslessly.
 - The app's `App` struct initializer is executed when an intent runs, even if the UI never appears. Do all intent-relevant setup (`ModelContainer` creation, `AppDependencyManager.shared.add(...)`, log plumbing) inside `init()`, not inside view modifiers like `.task` or `.onAppear`.
@@ -117,4 +270,5 @@ End of example.
 - `references/dependencies.md` - `@Dependency`, `AppDependencyManager`, data-controller pattern, `ModelContainer` vs `ModelContext` sendability, main-actor vs local-context tradeoff.
 - `references/spotlight.md` - `IndexedEntity`, `CSSearchableIndex`, `attributeSet`, index-on-launch vs index-on-change, debounced reindexing.
 - `references/assistant-schemas.md` - `@AssistantEntity`, `@AssistantIntent`, schema adoption, Xcode code snippets, caveats.
+- `references/testing-intents.md` - unit testing intents, mocking `@Dependency` via `AppDependencyManager`, Swift Testing patterns, what you can't unit-test.
 - `references/anti-patterns.md` - common mistakes LLMs make when generating App Intents code.

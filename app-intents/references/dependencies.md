@@ -238,9 +238,9 @@ struct ReaderApp: App, AppIntentsPackage {
 
 The main app's package lists the frameworks whose intents should be registered. Supports dynamic frameworks at iOS 17+.
 
-### Swift Packages and static libraries (iOS 19+)
+### Swift Packages and static libraries (iOS 26+)
 
-iOS 19 extended `AppIntentsPackage` support to Swift Packages and static library targets. Same protocol, same `includedPackages` declaration. Useful when you want to ship intents from a swift-package dependency without a binary framework target.
+iOS 26 extended `AppIntentsPackage` support to Swift Packages and static library targets. Same protocol, same `includedPackages` declaration. Useful when you want to ship intents from a swift-package dependency without a binary framework target.
 
 ### `AppShortcutsProvider` in the App Intents extension (iOS 17+)
 
@@ -254,7 +254,7 @@ External (non-Apple) library sources are still not supported - only first-party 
 
 ## UIKit lifecycle: `UISceneAppIntent` and `AppIntentSceneDelegate`
 
-iOS 19+. For UIKit apps (or UIKit-scene-based Catalyst / iPad apps), two protocols give intents first-class scene awareness:
+iOS 26+. For UIKit apps (or UIKit-scene-based Catalyst / iPad apps), two protocols give intents first-class scene awareness:
 
 ### `UISceneAppIntent`
 
@@ -290,7 +290,7 @@ On SwiftUI lifecycle apps, this is unnecessary - the `App.init()` / `@Dependency
 
 ## Scene routing for `TargetContentProvidingIntent`
 
-iOS 19+. When a `TargetContentProvidingIntent` runs, the system needs to know *which* of the app's scenes should handle it. Two mechanisms:
+iOS 26+. When a `TargetContentProvidingIntent` runs, the system needs to know *which* of the app's scenes should handle it. Two mechanisms:
 
 ### `contentIdentifier` + `handlesExternalEvents`
 

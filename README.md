@@ -17,14 +17,14 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 ## What It Covers
 
 - **Intents** - `AppIntent`, `OpenIntent`, `SnippetIntent`, `ForegroundContinuableIntent`, `DeleteIntent`, `ShowInAppSearchResultsIntent`, `TargetContentProvidingIntent`, `URLRepresentableIntent`, `ProgressReportingIntent`, `WidgetConfigurationIntent`, `ControlConfigurationIntent`, `PredictableIntent`
-- **Foreground continuation** - `ForegroundContinuableIntent` (iOS 17), `requestToContinueInForeground`, modern `supportedModes` + `continueInForeground` (iOS 19)
+- **Foreground continuation** - `ForegroundContinuableIntent` (iOS 17), `requestToContinueInForeground`, modern `supportedModes` + `continueInForeground` (iOS 26)
 - **Dialog + return types** - `ProvidesDialog`, `ReturnsValue`, `ShowsSnippetView`, `ShowsSnippetIntent`, `OpensIntent`, `OpenURLIntent`, `IntentDialog(full:supporting:)`, grammar agreement
 - **Metadata** - `IntentDescription(categoryName:searchKeywords:resultValueName:)`, `isDiscoverable`, `openAppWhenRun`, hard limits (10 shortcuts, 1000 phrases)
 - **Parameters** - `@Parameter` (with Xcode 16 inferred titles), `@AppEnum` (with `typeDisplayName`), `DynamicOptionsProvider`, `IntentParameterDependency`, measurement options, array size per widget family, `requestValue` / `needsValueError` / `requestConfirmation` / `requestChoice`, conditional `parameterSummary` (`Switch`/`Case`/`When`/`otherwise`, widget-family conditions)
 - **Entities** - `AppEntity`, `IndexedEntity`, `TransientAppEntity`, `FileEntity`, shadow-struct pattern for SwiftData, `@Property`, `@ComputedProperty(indexingKey:)`, `@DeferredProperty`, synonyms, pluralized `TypeDisplayRepresentation`, thumbnails (URL/Data/system/bundled), `@UnionValue` parameters
 - **Queries + Find intents** - `EntityQuery`, `EntityStringQuery`, `EnumerableEntityQuery`, `EntityPropertyQuery` (auto-generated Find intent with comparators + sort), `UniqueIDEntityQuery`, `IntentValueQuery` (visual intelligence)
 - **Transferable + URL** - `Transferable` conformance for sharing, `URLRepresentableEntity` + `URLRepresentableIntent` for no-code universal-link opens, `OpenURLIntent` return type for post-create navigation
-- **Snippets + Buttons** - `ShowsSnippetView` (inline), `ShowsSnippetIntent` + `SnippetIntent` (indirect), interactive `requestConfirmation(actionName:snippetIntent:)` flows, iOS 19 snippet refresh cycle + `SnippetIntent.reload()`, 340pt height ceiling, Result vs Confirmation snippet types, `Button(intent:)`
+- **Snippets + Buttons** - `ShowsSnippetView` (inline), `ShowsSnippetIntent` + `SnippetIntent` (indirect), interactive `requestConfirmation(actionName:snippetIntent:)` flows, iOS 26 snippet refresh cycle + `SnippetIntent.reload()`, 340pt height ceiling, Result vs Confirmation snippet types, `Button(intent:)`
 - **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `updateAppShortcutParameters()` (SwiftUI + UIKit), `SiriTipView`, `ShortcutsLink`, Flexible Matching (iOS 17+), Negative Phrases, AppShortcuts String Catalog, accent colors in Info.plist, Xcode's App Shortcuts Preview tool, watchOS / HomePod specifics
 - **Widgets + relevance** - `WidgetConfigurationIntent`, `ControlConfigurationIntent`, `RelevantIntentManager` + `RelevantIntent` for Smart Stack / complications
 - **Spotlight** - `IndexedEntity`, `CSSearchableIndex`, `associateAppEntity(_:priority:)` for existing pipelines, `@ComputedProperty(indexingKey:)`, custom attribute keys
@@ -32,6 +32,7 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 - **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes, App Group sharing pattern for interactive widget state
 - **SwiftData** - `ModelContainer` vs `ModelContext` sendability, safe cross-actor patterns
 - **Apple Intelligence** - `@AppEntity` / `@AppIntent` / `@AppEnum` schema macros, 12+ domains (`.photos.*`, `.journal.*`, `.mail.*`, `.browser.*`, `.visualIntelligence.*`, `.system.search`, ...), onscreen content via `userActivity(_:element:)`, `@UnionValue` for multi-type results, **Use Model** action integration via `AttributedString` parameters, Shortcuts-app-as-harness testing pattern
+- **Testing** - unit-test intents as plain Swift structs, mock `@Dependency` via `AppDependencyManager`, Swift Testing (`@Suite`, `@Test`) patterns, what you can / can't unit-test
 - **Anti-patterns** - ~35 catches including `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `@Property`, `AppEntity` instead of `TransientAppEntity`, missing `Transferable`, duplicate `perform()` on `URLRepresentableIntent`, mutation / expensive work in `SnippetIntent.perform()`, intent-per-variant, UI-element intents, parameterized phrases without fallback, and more
 
 

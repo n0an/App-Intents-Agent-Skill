@@ -420,9 +420,9 @@ struct CreateNoteIntent: AppIntent {
 
 The return shape `ReturnsValue<T> & OpensIntent` both hands back the created entity (chainable in Shortcuts) *and* tells the system to open the app to that entity's universal link. Pairs naturally with `URLRepresentableEntity`. iOS 18+.
 
-## iOS 19 snippet interactivity
+## iOS 26 snippet interactivity
 
-`SnippetIntent` became the primary interactive-snippet mechanism at iOS 19 (WWDC25 #275). Two refinements worth knowing:
+`SnippetIntent` became the primary interactive-snippet mechanism at iOS 26 (WWDC25 #275). Two refinements worth knowing:
 
 ### Interactive refresh cycle
 

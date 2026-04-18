@@ -615,7 +615,7 @@ For schema-adopted entities (e.g., `.photos.asset`), `Transferable` conformance 
 
 ## Mutating app state inside `SnippetIntent.perform()`
 
-iOS 19's snippet refresh cycle calls the snippet intent's `perform()` multiple times per user interaction - on first show, after each button tap, on dark-mode toggle, on `SnippetIntent.reload()`. If `perform()` has side effects, they run repeatedly.
+iOS 26's snippet refresh cycle calls the snippet intent's `perform()` multiple times per user interaction - on first show, after each button tap, on dark-mode toggle, on `SnippetIntent.reload()`. If `perform()` has side effects, they run repeatedly.
 
 ```swift
 // WRONG - logs an analytics event every time the snippet re-renders

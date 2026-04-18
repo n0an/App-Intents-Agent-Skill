@@ -327,7 +327,7 @@ When `needsValueError(...)` throws, the system prompts the user and then **calls
 
 ## `requestChoice` for multiple options
 
-iOS 19+. When you want to offer the user a pick between several alternatives (not a confirm/cancel), use `requestChoice`:
+iOS 26+. When you want to offer the user a pick between several alternatives (not a confirm/cancel), use `requestChoice`:
 
 ```swift
 let options: [IntentChoice<Route>] = routes.map {

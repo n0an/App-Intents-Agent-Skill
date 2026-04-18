@@ -68,7 +68,7 @@ struct RefreshFeedIntent: AppIntent {
 | `TargetContentProvidingIntent` | Marker protocol on iOS - tells the system this intent produces the app scene users navigated to. Needed for visual intelligence routing back into the app. |
 | `WidgetConfigurationIntent` | Marker protocol for an intent that's *only* used as widget configuration. Parameter queries drive the configuration picker; no user-invokable action. (iOS 17+ via WidgetKit's `AppIntentConfiguration`) |
 | `ControlConfigurationIntent` | Same, but for Control Center controls (iOS 18+). An intent can be both the control's configuration and its tap action. |
-| `PredictableIntent` | The system learns from prior invocations and suggests the intent proactively; tailor the description dynamically based on parameter values. (iOS 19+) |
+| `PredictableIntent` | The system learns from prior invocations and suggests the intent proactively; tailor the description dynamically based on parameter values. (iOS 26+) |
 
 ## Foreground continuation
 
@@ -113,7 +113,7 @@ let result = try await requestToContinueInForeground(dialog) {
 
 Use when the foreground step yields data you need to finish the work.
 
-### `supportedModes` + `continueInForeground` (iOS 19+)
+### `supportedModes` + `continueInForeground` (iOS 26+)
 
 The modern form. Declare which execution modes the intent supports, then decide dynamically inside `perform()`:
 
@@ -143,7 +143,7 @@ Modes:
 
 `continueInForeground(alwaysConfirm:)` opens the app; `alwaysConfirm: false` skips the confirmation prompt if the device was recently active (trusts recency as implicit consent).
 
-Prefer `supportedModes` + `continueInForeground` on iOS 19. `ForegroundContinuableIntent` / `needsToContinueInForegroundError` remain for backward compatibility.
+Prefer `supportedModes` + `continueInForeground` on iOS 26. `ForegroundContinuableIntent` / `needsToContinueInForegroundError` remain for backward compatibility.
 
 ## Background launch without scenes
 
