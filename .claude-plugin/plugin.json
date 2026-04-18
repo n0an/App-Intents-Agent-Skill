@@ -1,0 +1,5 @@
+{
+  "name": "app-intents",
+  "version": "1.0.0",
+  "description": "Reviews and writes Swift App Intents code for Siri, Shortcuts, Spotlight, and Apple Intelligence integration"
+}
