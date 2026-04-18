@@ -191,6 +191,17 @@ Xcode 16+ ships code snippets for every schema. Type the domain name (`journal`,
 
 Use the snippets for first-time adoption. Hand-writing a schema type from the API docs alone is error-prone because the macro rejects small deviations without helpful diagnostics.
 
+### Browsing available schemas
+
+Type a domain name followed by a dot in the macro argument, and Xcode completion lists every schema in that domain:
+
+```swift
+@AppIntent(schema: .photos.|)     // Xcode shows .asset, .album, .createAssets, .openAsset, ...
+@AppEntity(schema: .journal.|)    // Xcode shows .entry, .entryLocation, ...
+```
+
+Faster than grepping Apple's documentation. Use completion as the authoritative list; Apple adds schemas in minor OS releases without always updating the doc-set indexing.
+
 ## Schema-adopted enums
 
 Enums can also declare schema adoption. The macro enforces allowed case names:

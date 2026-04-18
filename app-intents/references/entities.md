@@ -302,6 +302,22 @@ When Siri or the system share sheet asks for the entity's content, they use this
 
 `Transferable` is required for schemas that expect exportable content (e.g., `.photos.asset`). It's also what lets "send this to Mail" or "summarize this" work when the entity is the current onscreen content.
 
+### `ProxyRepresentation` for single-field exports
+
+When the entity's exported content is just one of its own stored properties, skip the `DataRepresentation` closure and use `ProxyRepresentation(exporting:)` with a key path:
+
+```swift
+extension JournalEntryEntity: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(exporting: \.entryText)
+    }
+}
+```
+
+Shorter than the closure form; works for any property whose type is itself `Transferable` (`String`, `Data`, `URL`, another entity). The exported content type comes from the property's type.
+
+Use `ProxyRepresentation` for plain passthrough; drop to `DataRepresentation` / `FileRepresentation` closures when the exported bytes are computed from multiple fields or require formatting.
+
 ## `DisplayRepresentation` anatomy
 
 ```swift

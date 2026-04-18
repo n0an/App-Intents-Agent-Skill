@@ -567,6 +567,34 @@ struct ToggleFocusIntent: ControlConfigurationIntent, AppIntent {
 
 The system uses the `@Parameter` for the configuration picker when the user adds the control; when the control is tapped, `perform()` runs with that configured value.
 
+### `ControlWidgetButton(action:)`
+
+Inside a control widget's view, use `ControlWidgetButton` to fire an intent on tap. It's the control-widget counterpart to `Button(intent:)`:
+
+```swift
+struct FocusControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "focus-toggle") {
+            ControlWidgetButton(action: ToggleFocusIntent(mode: .work)) {
+                Label("Work Focus", systemImage: "briefcase")
+            }
+        }
+    }
+}
+```
+
+Takes a pre-configured intent instance (so the same convenience-init pattern from `Button(intent:)` applies). Runs the intent in the app process; respects `openAppWhenRun` and all the usual lifecycle rules.
+
+### Snippets don't render inside Control Center
+
+Control widgets are a different rendering surface than App Intents snippets. Intents fired from `ControlWidgetButton(action:)` can return dialog and mutate state, but **they cannot display a `ShowsSnippetView` / `ShowsSnippetIntent` result inside the control**. The snippet UI is not available in Control Center - WWDC demo footage sometimes suggests otherwise but the shipping behavior is that snippets appear only from Siri, Shortcuts, and Spotlight invocations.
+
+If the intent needs to surface detailed feedback, either:
+
+- Use a short dialog (`.result(dialog: "Work focus on.")`) - Control Center shows it as a brief toast.
+- Open the app via `openAppWhenRun = true` or `OpenURLIntent` when a full snippet-like view is required.
+- Update the control's displayed state and rely on the control's own rendering to convey the outcome.
+
 ## Proactive suggestions: `RelevantIntentManager`
 
 iOS 17+. The Smart Stack (and watchOS complications) can surface your widgets at contextually relevant times. Declare when:
