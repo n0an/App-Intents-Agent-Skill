@@ -11,9 +11,7 @@
     </a>
 </p>
 
-<p align="center">
-   <strong>🍎 Updated for WWDC 2026</strong> - now covers the iOS 27 App Intents APIs: long-running &amp; cancellable intents, on-screen awareness, <code>EntityCollection</code>, <code>SyncableEntity</code>, and the <code>AppIntentsTesting</code> framework.
-</p>
+> **🍎 Updated for WWDC 2026** - now covers the iOS 27 App Intents APIs: long-running & cancellable intents, on-screen awareness, `EntityCollection`, `SyncableEntity`, and the `AppIntentsTesting` framework.
 
 An agent skill that helps AI coding agents like Claude Code, Codex, Cursor, and Gemini write correct Swift App Intents code - exposing app actions and data to Siri, Shortcuts, Spotlight, widgets, Control Center, and Apple Intelligence.
 
