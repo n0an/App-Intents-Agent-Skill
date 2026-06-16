@@ -3,6 +3,10 @@
 <p align="center">
     <img src="https://img.shields.io/badge/iOS-16+-2980b9.svg" alt="iOS 16+" />
     <img src="https://img.shields.io/badge/swift-5.9+-F05138.svg" alt="Swift 5.9+" />
+    <a href="https://github.com/n0an/App-Intents-Agent-Skill/releases/tag/v1.1.0">
+        <img src="https://img.shields.io/badge/version-1.1.0-blueviolet.svg" alt="Version 1.1.0" />
+    </a>
+    <img src="https://img.shields.io/badge/WWDC%202026-iOS%2027-FF2D55.svg" alt="Covers WWDC 2026 / iOS 27" />
     <img src="https://img.shields.io/badge/license-MIT-lightgrey.svg" alt="MIT License" />
     <a href="https://agentskills.io/home">
         <img src="https://img.shields.io/badge/Agent%20Skills-Compatible-purple.svg" alt="Agent Skills Compatible" />
