@@ -1,7 +1,7 @@
 {
   "name": "app-intents",
   "description": "Reviews and writes Swift App Intents code, exposing app actions and data to Siri, Shortcuts, Spotlight, and Apple Intelligence",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Anton Novoselov",
   "license": "MIT",
   "repository": "https://github.com/n0an/App-Intents-Agent-Skill"

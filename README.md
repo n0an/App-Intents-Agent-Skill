@@ -16,14 +16,15 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 
 ## What It Covers
 
-- **Intents** - `AppIntent`, `OpenIntent`, `SnippetIntent`, `ForegroundContinuableIntent`, `DeleteIntent`, `ShowInAppSearchResultsIntent`, `TargetContentProvidingIntent`, `URLRepresentableIntent`, `ProgressReportingIntent`, `WidgetConfigurationIntent`, `ControlConfigurationIntent`, `PredictableIntent`
+- **Intents** - `AppIntent`, `OpenIntent`, `SnippetIntent`, `ForegroundContinuableIntent`, `DeleteIntent`, `ShowInAppSearchResultsIntent`, `TargetContentProvidingIntent`, `URLRepresentableIntent`, `ProgressReportingIntent`, `LongRunningIntent`, `CancellableIntent`, `WidgetConfigurationIntent`, `ControlConfigurationIntent`, `PredictableIntent`
+- **Execution lifecycle** - the 30-second budget, `LongRunningIntent` + `performBackgroundTask` (iOS 27), `CancellableIntent` + `withIntentCancellationHandler` (iOS 26.4), background GPU access, `allowedExecutionTargets` to pin an intent to the app or an extension
 - **Foreground continuation** - `ForegroundContinuableIntent` (iOS 17), `requestToContinueInForeground`, modern `supportedModes` + `continueInForeground` (iOS 26)
 - **Dialog + return types** - `ProvidesDialog`, `ReturnsValue`, `ShowsSnippetView`, `ShowsSnippetIntent`, `OpensIntent`, `OpenURLIntent`, `IntentDialog(full:supporting:)`, grammar agreement
 - **Metadata** - `IntentDescription(categoryName:searchKeywords:resultValueName:)`, `isDiscoverable`, `openAppWhenRun`, hard limits (10 shortcuts, 1000 phrases)
-- **Parameters** - `@Parameter` (with Xcode 16 inferred titles), `@AppEnum` (with `typeDisplayName`), `DynamicOptionsProvider`, `IntentParameterDependency`, measurement options, array size per widget family, `requestValue` / `needsValueError` / `requestConfirmation` / `requestChoice`, conditional `parameterSummary` (`Switch`/`Case`/`When`/`otherwise`, widget-family conditions)
-- **Entities** - `AppEntity`, `IndexedEntity`, `TransientAppEntity`, `FileEntity`, shadow-struct pattern for SwiftData, `@Property`, `@ComputedProperty(indexingKey:)`, `@DeferredProperty`, synonyms, pluralized `TypeDisplayRepresentation`, thumbnails (URL/Data/system/bundled), `@UnionValue` parameters
-- **Queries + Find intents** - `EntityQuery`, `EntityStringQuery`, `EnumerableEntityQuery`, `EntityPropertyQuery` (auto-generated Find intent with comparators + sort), `UniqueIDEntityQuery`, `IntentValueQuery` (visual intelligence)
-- **Transferable + URL** - `Transferable` conformance for sharing, `URLRepresentableEntity` + `URLRepresentableIntent` for no-code universal-link opens, `OpenURLIntent` return type for post-create navigation
+- **Parameters** - `@Parameter` (with Xcode 16 inferred titles), `@AppEnum` (with `typeDisplayName`), `DynamicOptionsProvider`, `IntentParameterDependency`, `EntityCollection` (identifiers-only at scale), native `Duration` / `PersonNameComponents`, `valueState` (set / cleared / unset for update intents), measurement options, array size per widget family, `requestValue` / `needsValueError` / `requestConfirmation` / `requestChoice`, conditional `parameterSummary` (`Switch`/`Case`/`When`/`otherwise`, widget-family conditions)
+- **Entities** - `AppEntity`, `IndexedEntity`, `TransientAppEntity`, `FileEntity`, `SyncableEntity` (cross-device ids), `OwnershipProvidingEntity` (shared/public confirmation), `RelevantEntities` (proactive suggestions), shadow-struct pattern for SwiftData, `@Property`, `@ComputedProperty(indexingKey:)`, `@DeferredProperty`, synonyms, pluralized `TypeDisplayRepresentation`, thumbnails (URL/Data/system/bundled), `@UnionValue` parameters
+- **Queries + Find intents** - `EntityQuery`, `EntityStringQuery`, `EnumerableEntityQuery`, `EntityPropertyQuery` (auto-generated Find intent with comparators + sort), `UniqueIDEntityQuery`, `IndexedEntityQuery` (Spotlight reindexing), `IntentValueQuery` (structured Siri search + visual intelligence)
+- **Transferable + URL** - `Transferable` conformance for sharing, `IntentValueRepresentation` / `ValueRepresentation` for structured system types (`IntentPerson`, `PlaceDescriptor`), `URLRepresentableEntity` + `URLRepresentableIntent` for no-code universal-link opens, `OpenURLIntent` return type for post-create navigation
 - **Snippets + Buttons** - `ShowsSnippetView` (inline), `ShowsSnippetIntent` + `SnippetIntent` (indirect), interactive `requestConfirmation(actionName:snippetIntent:)` flows, iOS 26 snippet refresh cycle + `SnippetIntent.reload()`, 340pt height ceiling, Result vs Confirmation snippet types, `Button(intent:)`
 - **Shortcuts + Siri** - `AppShortcutsProvider`, the `\(.applicationName)` rule, `updateAppShortcutParameters()` (SwiftUI + UIKit), `SiriTipView`, `ShortcutsLink`, Flexible Matching (iOS 17+), Negative Phrases, AppShortcuts String Catalog, accent colors in Info.plist, Xcode's App Shortcuts Preview tool, watchOS / HomePod specifics
 - **Widgets + relevance** - `WidgetConfigurationIntent`, `ControlConfigurationIntent`, `RelevantIntentManager` + `RelevantIntent` for Smart Stack / complications
@@ -31,9 +32,11 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 - **Dependencies** - `@Dependency`, `AppDependencyManager`, data-controller pattern, `AppIntentsPackage` (frameworks, Swift Packages, static libs), cross-module entities, `UISceneAppIntent` + `AppIntentSceneDelegate` for UIKit, `contentIdentifier` + `handlesExternalEvents` for scene routing
 - **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes, App Group sharing pattern for interactive widget state
 - **SwiftData** - `ModelContainer` vs `ModelContext` sendability, safe cross-actor patterns
-- **Apple Intelligence** - `@AppEntity` / `@AppIntent` / `@AppEnum` schema macros, 12+ domains (`.photos.*`, `.journal.*`, `.mail.*`, `.browser.*`, `.visualIntelligence.*`, `.system.search`, ...), onscreen content via `userActivity(_:element:)`, `@UnionValue` for multi-type results, **Use Model** action integration via `AttributedString` parameters, Shortcuts-app-as-harness testing pattern
-- **Testing** - unit-test intents as plain Swift structs, mock `@Dependency` via `AppDependencyManager`, Swift Testing (`@Suite`, `@Test`) patterns, what you can / can't unit-test
-- **Anti-patterns** - ~35 catches including `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `@Property`, `AppEntity` instead of `TransientAppEntity`, missing `Transferable`, duplicate `perform()` on `URLRepresentableIntent`, mutation / expensive work in `SnippetIntent.perform()`, intent-per-variant, UI-element intents, parameterized phrases without fallback, and more
+- **Siri + Apple Intelligence** - `@AppEntity` / `@AppIntent` / `@AppEnum` schema macros, 13+ domains (`.calendar.*`, `.messages.*`, `.photos.*`, `.journal.*`, `.mail.*`, `.browser.*`, `.visualIntelligence.*`, `.system.searchInApp`, ...), three content-discovery paths (semantic index / structured search / in-app search), multi-schema build errors + Xcode fix-its, custom Siri responses, interaction donations (`IntentDonationManager`), confirmation + ownership, **Use Model** action via `AttributedString` parameters
+- **On-screen awareness + content transfer** - the four annotation APIs (`.userActivity`, `.appEntityIdentifier`, collection `forSelectionType`, custom-canvas `.appEntityUIElements`), UIKit/AppKit equivalents, `displayRepresentations` fast path, entity annotations on User Notifications / Now Playing / AlarmKit
+- **Visual Intelligence** - `IntentValueQuery` + `SemanticContentDescriptor`, now on iOS / iPadOS / macOS, `@UnionValue` multi-type results, `semanticContentSearch` "More results", receiving data via system stores (EventKit / Contacts / HealthKit)
+- **Testing** - the new `AppIntentsTesting` framework (out-of-process integration: `IntentDefinitions`, `makeIntent`/`run()`, `entities(matching:)`, `spotlightQuery()`, `viewAnnotations()`, test-only intents), plus direct `perform()` struct tests, mocking `@Dependency`, Swift Testing patterns, what you can / can't unit-test
+- **Anti-patterns** - ~40 catches including `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `@Property`, `AppEntity` instead of `TransientAppEntity`, missing `Transferable`, duplicate `perform()` on `URLRepresentableIntent`, mutation / expensive work in `SnippetIntent.perform()`, resolving entities at scale instead of `EntityCollection`, `LongRunningIntent` without progress, plain `nil` checks instead of `valueState`, cross-process write conflicts, `TransientAppEntity` for annotations, over-donating interactions, and more
 
 
 ## Installing
@@ -90,7 +93,7 @@ You can also trigger the skill using natural language:
 
 ## Why Use an Agent Skill for App Intents?
 
-App Intents is a fast-moving framework that has changed significantly across iOS 16, 17, and 18. Most LLM training data either predates App Intents entirely or reflects the older SiriKit approach. As a result, agents routinely generate code that:
+App Intents is a fast-moving framework that has changed significantly across iOS 16, 17, 18, 26, and the 27 releases (WWDC 2026). Most LLM training data either predates App Intents entirely or reflects the older SiriKit approach. As a result, agents routinely generate code that:
 
 - Tries to make a SwiftData `@Model` class conform to `AppEntity` - which no longer compiles under Swift 6 because `AppEntity` requires `Sendable`
 - Uses SwiftUI `@Query` inside an intent, which silently does nothing because intents aren't views
@@ -104,7 +107,7 @@ This skill:
 
 - **Catches anti-patterns** LLMs default to, like `@Model` entity conformance, bare `String(format:)` dialog, and unregistered intents
 - **Provides copy-pasteable patterns** for every intent kind (action, open, snippet, focus, control widget) with correct return types
-- **Covers newer APIs** like `IndexedEntity`, `OpenIntent`, `ShowsSnippetView`, `@AssistantEntity` / `@AssistantIntent` schemas
+- **Covers newer APIs** like `IndexedEntity`, `OpenIntent`, `ShowsSnippetView`, `@AssistantEntity` / `@AssistantIntent` schemas, and the 27 releases additions (`LongRunningIntent`, `EntityCollection`, `SyncableEntity`, on-screen awareness, `AppIntentsTesting`)
 - **Enforces data-flow best practices** like `AppDependencyManager` injection, main-actor-bound data controllers, and `ModelContainer`-only cross-actor transfer
 
 
