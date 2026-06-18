@@ -626,12 +626,13 @@ Spotlight makes content **findable**; interaction donation teaches the system **
 
 ```swift
 // Suggest the running playlists; the system surfaces them in the right context.
-try await RelevantEntities.shared.updateEntities(runningPlaylists, for: AudioContext.workout)
+let workoutContext = AppEntityContext.audio(.workout(activityType: .running))
+try await RelevantEntities.shared.updateEntities(runningPlaylists, for: workoutContext)
 ```
 
 - Provide the full set at once with `updateEntities(_:for:)` - each call **replaces** your previous suggestions for that context (pass `[]` to clear).
 - Entities stay registered until you remove them: `removeEntities(_:from:)`, `removeAllEntities(for:)`, or `removeAllEntities()`. The system also auto-expires suggestions after roughly four weeks if the app isn't launched.
-- Contexts come from types like `AppEntityContext` / `AudioContext`.
+- Build the context from `AppEntityContext` - e.g. `AppEntityContext.audio(.workout(activityType: .running))` for a running workout. Each domain exposes its own nested context cases.
 
 Choosing between the three discovery mechanisms: **Spotlight** when content should be searchable/retrievable by Siri; **interaction donation** to teach the system how people use the app (see `siri-intelligence.md`); **`RelevantEntities`** to hint which content matters in a specific situation.
 

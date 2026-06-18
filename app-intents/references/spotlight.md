@@ -109,7 +109,7 @@ Apple's explicit recommendation (WWDC24) is to perform the initial index inside 
 
 ## Spotlight is the semantic index for Siri
 
-As of the 27 releases, indexing into Spotlight is the **primary way Siri retrieves your content** - and depending on the App Intents domain, it provides **semantic search**: Siri matches on *meaning*, not just keywords ("messages about movies" finds messages mentioning film titles), understands relationships between entities, and can answer questions over your content. Adopt `IndexedEntity` and keep the index current; that's what unlocks the best Siri experience. For content you can't index ahead of time (large, server-side, or volatile), fall back to `IntentValueQuery` - see `siri-intelligence.md`.
+As of the 27 releases, indexing into Spotlight is the **primary way Siri retrieves your content** - and depending on the App Intents domain, it provides **semantic search**: Siri matches on *meaning*, not just keywords ("messages about movies" finds messages mentioning film titles), understands relationships between entities, and can answer questions over your content. Adopt `IndexedEntity` and keep the index current; that's what unlocks the best Siri experience. For content you can't index ahead of time (large, server-side, or volatile), fall back to `IntentValueQuery` - see `siri-intelligence.md`. The same index is also queryable by on-device LLMs: once indexed, your content can be searched through `SpotlightSearchTool` in the Foundation Models framework (WWDC 2026 Session 246), which is a Foundation Models topic rather than an App Intents one.
 
 ## Supporting reindexing: `IndexedEntityQuery` (iOS 27+)
 

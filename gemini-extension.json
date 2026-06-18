@@ -1,5 +1,5 @@
 {
   "name": "app-intents",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Reviews and writes Swift App Intents code, exposing app actions and data to Siri, Shortcuts, Spotlight, and Apple Intelligence"
 }

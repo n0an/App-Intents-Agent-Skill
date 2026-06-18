@@ -4,7 +4,7 @@ description: Writes and reviews Swift App Intents code that exposes app actions 
 license: MIT
 metadata:
   author: Anton Novoselov
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 Write and review Swift code that exposes app functionality through the App Intents framework, ensuring correct protocol conformance, safe data flow, and idiomatic discoverability wiring.

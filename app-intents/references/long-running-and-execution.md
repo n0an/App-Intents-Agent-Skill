@@ -97,7 +97,32 @@ Notes:
 - The system can cancel for two reasons worth designing around: the intent went over 30 seconds without reporting progress, or someone tapped cancel in Siri / a Live Activity / Shortcuts.
 - **Keep the cancellation handler fast.** Except on macOS, the process can still be suspended shortly after cancellation - adopting the protocol buys extra time, but not unlimited time. Do the minimum (roll back, persist, log) and return.
 
-`CancellableIntent` and `LongRunningIntent` compose: a long-running upload that also wants graceful cancellation conforms to both.
+`CancellableIntent` and `LongRunningIntent` compose: a long-running upload that also wants graceful cancellation conforms to both. When an intent adopts both, you don't need a separate `withIntentCancellationHandler` - `performBackgroundTask` itself takes a trailing `onCancel:` closure, so the extended-runtime work and its cleanup live in one call:
+
+```swift
+struct UploadPhotoIntent: LongRunningIntent, CancellableIntent {
+    static let title: LocalizedStringResource = "Upload Photo"
+
+    @Parameter var photo: IntentFile
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let result = try await performBackgroundTask {
+            let chunks = calculateChunks(for: photo)
+            progress.totalUnitCount = Int64(chunks)
+
+            for chunk in 1...chunks {
+                try Task.checkCancellation()
+                try await uploadChunk(chunk)
+                progress.completedUnitCount = Int64(chunk)
+            }
+            return "Upload complete!"
+        } onCancel: { reason in
+            cleanup(for: reason)   // reason is an IntentCancellationReason
+        }
+        return .result(dialog: "\(result)")
+    }
+}
+```
 
 ## Execution targets: `allowedExecutionTargets` (iOS 27+)
 

@@ -109,12 +109,14 @@ These also power contextual menu items in UIKit apps - see Apple's "Modernize yo
 
 When a screen shows many entities, Siri has to understand them *quickly* to answer "play the third one" - if resolution is slow it may give up, ask to clarify, or do the wrong thing. Don't make it fetch full entities from your database just to read a label.
 
-Implement the `displayRepresentations` method on the entity's query so Siri can pull just the text representation:
+Implement the `displayRepresentations` method on the entity's query so Siri can pull just the text representation. Take a `requestedComponents` parameter so you only materialize what the system actually asked for - `.text` for a plain label, versus the full title/subtitle/image - and skip loading artwork or running queries when only text is needed:
 
 ```swift
 extension TrackEntityQuery {
-    func displayRepresentations(for identifiers: [TrackEntity.ID]) async throws
-        -> [TrackEntity.ID: DisplayRepresentation] {
+    func displayRepresentations(
+        for identifiers: [TrackEntity.ID],
+        requestedComponents: DisplayRepresentation.Components = .text
+    ) async throws -> [TrackEntity.ID: DisplayRepresentation] {
         try await store.trackTitles(for: identifiers).mapValues {
             DisplayRepresentation(title: "\($0)")
         }
@@ -122,7 +124,7 @@ extension TrackEntityQuery {
 }
 ```
 
-Now resolving onscreen content skips the heavy `entities(for:)` path and the database round-trip when only the display text is needed. Worth adding to any entity that appears in scrollable lists.
+Now resolving onscreen content skips the heavy `entities(for:)` path and the database round-trip when only the display text is needed. Branch on `requestedComponents` to add a subtitle or thumbnail only when the system requests it. Worth adding to any entity that appears in scrollable lists.
 
 ## Content transfer: exporting and importing entities
 
