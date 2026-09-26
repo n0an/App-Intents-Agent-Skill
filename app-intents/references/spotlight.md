@@ -248,6 +248,8 @@ The system's ranking algorithm is opaque; more signal generally helps. Don't abu
 
 Tapping a Spotlight result lands in your app via a matching `OpenIntent` (see `open-and-snippet-intents.md`). The match is: result entity type → `OpenIntent` whose `target` parameter is that entity type. No extra registration.
 
+A tap can also arrive as a `CSSearchableItemActionType` user activity instead of an intent run (items donated as `CSSearchableItem`, no matching `OpenIntent`). Handle it with `.onContinueUserActivity(CSSearchableItemActionType)` - and, for UIKit-lifecycle cold launches, `UIScene.ConnectionOptions.userActivities` - and send both paths to the same navigation action. See "Also handle the `CSSearchableItemActionType` user activity" in `open-and-snippet-intents.md`.
+
 ## Cleaning up
 
 On app uninstall the system removes your index automatically. If an item is deleted in-app:

@@ -4,7 +4,7 @@ description: Writes and reviews Swift App Intents code that exposes app actions 
 license: MIT
 metadata:
   author: Anton Novoselov
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 Write and review Swift code that exposes app functionality through the App Intents framework, ensuring correct protocol conformance, safe data flow, and idiomatic discoverability wiring.
@@ -106,6 +106,7 @@ Generic action?
 
 Opens the app to a specific entity?
   → OpenIntent (+ TargetContentProvidingIntent on iOS)
+  → on iOS 27+, @AppIntent(schema: .system.open) on the OpenIntent, with a legacy sibling intent for older OS
 
 Renders an interactive view only, no business logic?
   → SnippetIntent
@@ -239,6 +240,7 @@ Internal to the entity, not shown anywhere?
 - **Never** reach back into a SwiftUI `@Query` from inside an intent. `@Query` only works inside a `View`. Run a one-shot `FetchDescriptor` through a `ModelContext` instead, or route through a centralized data controller.
 - **Never** instantiate services, data stores, or authentication managers inside `perform()`. Inject them through `@Dependency` and register them once in `App.init()` with `AppDependencyManager.shared.add(dependency:)`.
 - **Never** use `String(format:)` or manual concatenation for localized intent dialog. Use `LocalizedStringResource`, and use Foundation's grammar-agreement markdown (`^[\(count) item](inflect: true)`) inside an `AttributedString` for pluralization.
+- When an intent can fire before the app's store / navigation exists (cold launch, splash, store built in the root view), dispatch through a main-actor router that queues the action until the UI attaches, and send Spotlight `CSSearchableItemActionType` user activities through the same action. See `references/open-and-snippet-intents.md`.
 - Prefer `OpenIntent` for "take me to this thing" actions, `AppIntent & ShowsSnippetView` for self-contained one-shot summaries, and `AppIntent & ShowsSnippetIntent` + a paired `SnippetIntent` when the snippet contains `Button(intent:)` and needs to re-render after buttons fire.
 - Always set `static let isDiscoverable: Bool = false` on helper intents that only back a widget button, snippet button, or other intent - otherwise they pollute the user's Shortcuts library.
 - When an intent mutates data that widgets or control widgets display, call `WidgetCenter.shared.reloadAllTimelines()` inside `perform()` before returning.

@@ -299,6 +299,64 @@ Routes a system search query into the app's in-app search UI. Siri / Spotlight /
 
 `.system.searchInApp` is the generic version of this schema, usable by any app type. It is the **new name** (the 27 releases) for the `.system.search` schema introduced in iOS 17 - update references if you adopted the old name. Photo and mail apps use the domain-specific variants (`.photos.search`, `.mail.search`). It works regardless of which other domains you adopt, even if you index nothing.
 
+### `OpenIntent` with `.system.open` (the 27 releases)
+
+`.system.open` is the generic "open this thing" schema. Any app can adopt it on its `OpenIntent`, and it's the intent that lets Siri resolve "open *X* in MyApp" against your indexed entities. A schema intent gets its title and parameter shape from the schema, so declare `target` as a plain property - no `@Parameter`, no `title`:
+
+```swift
+@available(iOS 27, *)
+@AppIntent(schema: .system.open)
+struct OpenRouteIntent: OpenIntent, TargetContentProvidingIntent {
+    var target: RouteEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppIntentRouter.dispatch(.openRoute(id: target.id))
+        return .result()
+    }
+}
+```
+
+If you deploy below iOS 27, keep a regular intent for older systems. It can't be the same type (the macro and schema are iOS 27-only), so it's a sibling that funnels into the same action:
+
+```swift
+struct ShowRouteIntent: AppIntent {
+    static let title: LocalizedStringResource = "Show Route"
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Route")
+    var route: RouteEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppIntentRouter.dispatch(.openRoute(id: route.id))
+        return .result()
+    }
+}
+```
+
+Two follow-ons people miss:
+
+- **Donate the intent that matches the running OS.** Donating the legacy intent on iOS 27 teaches the system the wrong action; donating the schema intent on iOS 18 doesn't compile without a guard:
+
+  ```swift
+  func didOpenRouteFromUI(_ entity: RouteEntity) {
+      if #available(iOS 27, *) {
+          var intent = OpenRouteIntent()
+          intent.target = entity
+          IntentDonationManager.shared.donate(intent: intent)
+      } else {
+          var intent = ShowRouteIntent()
+          intent.route = entity
+          IntentDonationManager.shared.donate(intent: intent)
+      }
+  }
+  ```
+
+- **Point App Shortcut phrases at the intent that exists on every supported OS** - the legacy one (`"Show \(\.$route) in \(.applicationName)"`). An `AppShortcut` built on the iOS 27-only intent would need availability gating inside `appShortcuts`, and the parameterized phrase still needs `updateAppShortcutParameters()` whenever the entity list changes.
+
+When two entities both partially match the spoken name ("Park North" and "Park South" for "open Park"), Siri asks "Which one?" on its own - no disambiguation code needed. Give entities distinctive `DisplayRepresentation` titles so that prompt stays short.
+
 ## Apple Intelligence through Shortcuts: the Use Model action
 
 iOS 26+. Shortcuts ships a **Use Model** action that invokes on-device, Private Cloud Compute, or ChatGPT models, with App Entities as input and output:

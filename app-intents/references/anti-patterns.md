@@ -863,3 +863,23 @@ func sendFromUI(_ body: String, to contact: ContactEntity) async throws {
 ```
 
 Delete stale donations with `deleteDonations(matching:)` when the data is removed or the action is undone.
+
+## Expecting `IndexedEntity` to index itself
+
+`IndexedEntity` only declares that the type *may* be indexed by Spotlight and Siri - it writes nothing. Without an explicit `indexAppEntities(_:)` call the entity never appears in Spotlight, Siri can't resolve it by name, and nothing errors.
+
+```swift
+// WRONG - conformance alone, nothing is ever written to the index
+struct RouteEntity: IndexedEntity { ... }
+
+// CORRECT - write the index where the data changes (after save / delete / sync)
+func routesDidChange() async {
+    let entities = RouteStore.load().compactMap(RouteEntity.init)   // failable init skips unusable rows
+    let index = CSSearchableIndex.default()
+    try? await index.deleteAppEntities(ofType: RouteEntity.self)   // full resync: drop stale items first
+    guard !entities.isEmpty else { return }
+    try? await index.indexAppEntities(entities)
+}
+```
+
+`indexAppEntities` only adds / updates, so a full resync without the `deleteAppEntities(ofType:)` step leaves renamed or deleted items searchable. For large sets prefer per-entity updates and `deleteAppEntities(identifiedBy:ofType:)` (see `spotlight.md`); on iOS 27+ also adopt `IndexedEntityQuery` so the system can ask you to rebuild the index.

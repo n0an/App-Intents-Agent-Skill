@@ -70,6 +70,55 @@ Inject `AppNavigator` through `@Dependency` so intents can reach it. See `depend
 
 `OpenIntent` works even when the app has never been launched. The app process starts, `App.init()` runs (registering dependencies), the intent fires, navigation state is set, then the window appears on screen already at the right place. This is why **all cross-intent setup belongs in `App.init()`** - not in `.onAppear`, not in view modifiers.
 
+### When the intent runs before the UI is ready
+
+`App.init()` running first doesn't mean everything `perform()` touches exists yet. Apps whose navigation lives in a store created by the root view (TCA `Store`, a coordinator built in `.task`), or that show a splash / onboarding screen first, can receive the intent while there is nothing to navigate. The navigation call is silently lost and the app opens on its home screen.
+
+Route intents through a small main-actor bridge that **queues the action until the app is ready**:
+
+```swift
+@MainActor
+enum AppIntentRouter {
+    enum Action { case openRoute(id: UUID) }
+
+    private static var send: ((Action) -> Void)?
+    private static var pending: Action?
+
+    static func dispatch(_ action: Action) {
+        if let send { send(action) } else { pending = action }
+    }
+
+    /// Call once the store / navigation is live (root view `.task`, end of splash).
+    static func attach(_ handler: @escaping (Action) -> Void) {
+        send = handler
+        if let pending {
+            self.pending = nil
+            handler(pending)
+        }
+    }
+}
+
+struct OpenRouteIntent: OpenIntent {
+    static let title: LocalizedStringResource = "Open Route"
+
+    @Parameter(title: "Route")
+    var target: RouteEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppIntentRouter.dispatch(.openRoute(id: target.id))
+        return .result()
+    }
+}
+```
+
+Two rules that keep this robust:
+
+- **One action for every entry point.** The `OpenIntent`, a Spotlight tap delivered as a user activity (see "Bridging Spotlight selection" below), a widget deep link, and the in-app list row should all end in the same `.openRoute(id:)` action. Opening from Siri then behaves exactly like tapping in the app, and there's one code path to test.
+- **Hold the pending value in app state if a splash can intervene.** If the store exists but a splash / paywall is still covering the UI, store the id (`state.pendingRouteID = id`) and apply it when the splash finishes, rather than pushing navigation underneath it.
+
+When your navigator is a plain `@Observable` created in `App.init()` and injected via `@Dependency` (the pattern above), you don't need this - the object already exists when the intent fires.
+
 ## Snippet views (inline): `ShowsSnippetView`
 
 A snippet view is a compact SwiftUI scene rendered by the system in response to the intent. The user doesn't leave their current context; they just see the answer.
@@ -396,6 +445,27 @@ When a user taps an app entity in Spotlight results, the system looks for an `Op
 ...tapping the Spotlight result routes through your `OpenIntent` automatically. No additional wiring.
 
 In simulator this sometimes takes a few minutes after first launch before it starts working reliably - the index builds up in the background. On device it's generally faster.
+
+### Also handle the `CSSearchableItemActionType` user activity
+
+Don't assume every Spotlight tap arrives through `perform()`. A tap can also be delivered the classic Core Spotlight way - as an `NSUserActivity` of type `CSSearchableItemActionType` whose `userInfo[CSSearchableItemActivityIdentifier]` is the item's unique identifier (for an indexed `AppEntity`, the entity's `id` as a string). Expect it for items donated as `CSSearchableItem`s and when no matching `OpenIntent` exists; since the exact delivery path isn't guaranteed, handle both paths and funnel them into the same navigation action:
+
+```swift
+import CoreSpotlight
+
+WindowGroup {
+    RootView()
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            guard
+                let raw = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                let id = UUID(uuidString: raw)       // parse defensively; log the raw value once to confirm the format
+            else { return }
+            AppIntentRouter.dispatch(.openRoute(id: id))
+        }
+}
+```
+
+On a **cold launch** in a UIKit-lifecycle app, the activity arrives in `UIScene.ConnectionOptions.userActivities` inside `scene(_:willConnectTo:options:)`, before any SwiftUI view (and its `.onContinueUserActivity`) exists. Read it there and dispatch through the queuing router from "When the intent runs before the UI is ready" so it isn't lost.
 
 ## Returning `OpenURLIntent` to open the app post-action
 
