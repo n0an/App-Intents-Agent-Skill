@@ -22,6 +22,8 @@ By the time `perform()` runs, every non-optional `@Parameter` is filled. If the 
 
 On Xcode 16+, `title:` is optional. If omitted, the system auto-generates a localizable title from the property name (`newText` → "New Text"). Specify `title:` only when you want something different from the derived form.
 
+For a tool intent (27.3), the parameter's `title` and `description:` are how Siri's model learns what to put in it. State meaning plus format, unit, range, or time zone ("The day to plan the meal for, in the person's local time zone"), and what leaving an optional empty means ("Leave empty for Groceries"). Prefer an `AppEnum` to a free-form `String` for a closed set, and group several related plain values into one generable entity. See `siri-ai-tools.md` and `siri-ai-entities.md`.
+
 ## Required vs optional parameters
 
 Design guidance: keep parameters **optional** unless the intent is genuinely useless without them.

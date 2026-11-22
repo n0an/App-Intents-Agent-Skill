@@ -7,6 +7,8 @@ Two capabilities turn "what the user is looking at" into something Siri / Apple 
 
 Both are built on `AppEntity`. The system already knows the raw text on screen from the pixels; annotations add the *structured* layer - which entity each piece of UI represents, and which properties and actions apply. Requires iOS 18.2+; the collection and custom-canvas refinements below arrived with the 27 releases (WWDC 2026).
 
+With the Siri AI Developer Preview (27.3), onscreen context works for **custom entities**, not only schema-conforming ones, through the same APIs. This is what lets "who won this one last time?" or "add this to my shopping list" reach a tool intent with the visible entity filled in. Without an annotation Siri falls back to reading the screen's pixels ("Based on the screen, ...") and can only guess; with one it resolves the exact entity. Use the same identifier the entity is indexed under.
+
 ## The four onscreen-awareness APIs
 
 Pick by how many entities are visible and how they're drawn.

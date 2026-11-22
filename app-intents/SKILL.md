@@ -1,10 +1,10 @@
 ---
 name: app-intents
-description: Writes and reviews Swift App Intents code that exposes app actions and data to Siri, Shortcuts, Spotlight, widgets, Control Center, and Apple Intelligence. Use when adding AppIntent, AppEntity, OpenIntent, AppShortcutsProvider, EntityQuery, Focus Filters, AssistantEntity/AssistantIntent schemas, on-screen awareness, LongRunningIntent/CancellableIntent, EntityCollection, SyncableEntity, AppIntentsTesting, or when wiring SwiftData/networked data into intents.
+description: Writes and reviews Swift App Intents code that exposes app actions and data to Siri, Siri AI, Shortcuts, Spotlight, widgets, Control Center, and Apple Intelligence. Use when adding AppIntent, AppEntity, OpenIntent, AppShortcutsProvider, EntityQuery, Focus Filters, AssistantEntity/AssistantIntent schemas, on-screen awareness, LongRunningIntent/CancellableIntent, EntityCollection, SyncableEntity, AppIntentsTesting, or when wiring SwiftData/networked data into intents. Also use for the Siri AI Developer Preview (27.3) - "make my app work with Siri", tool intents with @AppIntent(.tool) / ToolIntent, @AppEntity(.generable), CardSnippet, app skills in a Skills.skillsbundle, sirimetadataanalyzer, and SiriEvaluations.
 license: MIT
 metadata:
   author: Anton Novoselov
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 Write and review Swift code that exposes app functionality through the App Intents framework, ensuring correct protocol conformance, safe data flow, and idiomatic discoverability wiring.
@@ -20,9 +20,10 @@ Review process:
 1. Validate Spotlight indexing via `IndexedEntity`, `IndexedEntityQuery`, and attribute sets using `references/spotlight.md`.
 1. Check `@AssistantEntity` / `@AssistantIntent` schema adoption using `references/assistant-schemas.md`.
 1. Validate the Siri / Apple Intelligence integration (finding content, custom responses, donations, confirmation, ownership) using `references/siri-intelligence.md`.
+1. For the Siri AI Developer Preview (27.3), check tool intents using `references/siri-ai-tools.md`, entity property descriptions / generable entities / card snippets using `references/siri-ai-entities.md`, and any `Skills.skillsbundle` using `references/app-skills.md`.
 1. Check on-screen awareness and content transfer (view annotations, `IntentValueRepresentation`, system-integration annotations) using `references/onscreen-awareness.md`.
 1. For intents that run past 30 seconds, handle cancellation, or target a specific process, use `references/long-running-and-execution.md`.
-1. If writing or reviewing tests for intents, use `references/testing-intents.md` (covers the new `AppIntentsTesting` framework).
+1. If writing or reviewing tests for intents, use `references/testing-intents.md` (covers the new `AppIntentsTesting` framework). For the Siri Metadata Analyzer and Siri Evaluations, use `references/siri-evaluations.md`.
 1. Catch common mistakes using `references/anti-patterns.md`.
 
 If doing partial work, load only the relevant reference files.
@@ -48,6 +49,7 @@ Match the user's goal to the read order. Load only what you need.
 ### "Show a summary / interactive view when Siri runs my intent"
 1. `references/open-and-snippet-intents.md` - inline vs indirect snippets, `SnippetIntent`, `Button(intent:)`
 2. `references/fundamentals.md` - return types and snippet design rules
+3. `references/siri-ai-entities.md` - `SnippetRepresentableEntity` + `CardSnippet` when the card belongs to an entity rather than to one intent's result (27.3)
 
 ### "Open a specific thing in my app from Siri / Shortcuts"
 1. `references/open-and-snippet-intents.md` - `OpenIntent`, `URLRepresentableIntent`, `TargetContentProvidingIntent`
@@ -57,6 +59,19 @@ Match the user's goal to the read order. Load only what you need.
 1. `references/siri-intelligence.md` - the integration model, finding content (semantic index / structured search / in-app search), custom responses, donations, confirmation/ownership
 2. `references/assistant-schemas.md` - schema macros, domains, multi-schema requirements, Xcode snippets
 3. `references/onscreen-awareness.md` - view annotations, content transfer, system-integration annotations
+
+### "Make my app work with Siri AI" / "Let Siri call my custom actions" (27.3)
+1. `references/siri-ai-tools.md` - `@AppIntent(.tool)`, metadata the model reads, results and errors, finding entities, schema + tool, availability gating, adoption order
+2. `references/siri-ai-entities.md` - property `description:` / `visibility:` / `authenticationPolicy:`, `@AppEntity(.generable)`, `CardSnippet`
+3. `references/siri-evaluations.md` - run `sirimetadataanalyzer` after every metadata change
+
+### "Write an app skill for Siri" / "Add a Skills.skillsbundle"
+1. `references/app-skills.md` - bundle layout, `SKILL.md` frontmatter and body rules, diagnostics, build-output check
+2. `references/siri-ai-tools.md` - the tools the skill orchestrates must exist and be clear on their own
+
+### "Test how Siri uses my app" / "Why did Siri pick the wrong intent?"
+1. `references/siri-evaluations.md` - analyzer findings, `SiriScenario` / `UserTurn` / `Calls` / `Finds` / `Loads`, metrics, reading a failed report
+2. `references/testing-intents.md` - `AppIntentsTesting` for the tools themselves
 
 ### "Integrate with Apple Intelligence"
 1. `references/assistant-schemas.md` - schema macros, domains, Use Model action, onscreen content
@@ -91,7 +106,7 @@ Match the user's goal to the read order. Load only what you need.
 1. `references/testing-intents.md` - the `AppIntentsTesting` framework (out-of-process integration), direct struct unit tests, mocking `@Dependency`, test-only intents, what you can't test
 
 ### "I'm hitting build errors or runtime bugs"
-1. `references/anti-patterns.md` - 35+ catches with before/after fixes
+1. `references/anti-patterns.md` - 50+ catches with before/after fixes, including the Siri AI (27.3) ones
 
 
 ## Decision trees
@@ -138,6 +153,11 @@ Has a universal-link URL representation?
 
 Matches an Apple Intelligence domain?
   → AppIntent + @AppIntent(schema: .domain.action)
+
+Custom action Siri's model should call (27.3+)?
+  → @AppIntent(.tool)  (adds ToolIntent)
+  → Shortcuts-only schema domain: @AppIntent(.tool, schema: .journal.createEntry)
+  → primary-domain schema: no .tool, it is a build error
 ```
 
 ### Which entity type should I use?
@@ -157,6 +177,12 @@ Entity IS a file (scan, voice memo, exported image)?
 
 Computed / aggregated data with no stable id?
   → TransientAppEntity
+
+A value Siri's model writes from the conversation (draft, plan, score sheet)?
+  → @AppEntity(.generable)  (GenerableEntity, 27.3+)
+
+Should show a custom card in Siri responses?
+  → AppEntity + SnippetRepresentableEntity returning a CardSnippet (27.3+)
 
 Needs Apple Intelligence schema awareness?
   → AppEntity + @AppEntity(schema: .domain.type)
@@ -208,6 +234,32 @@ Content nobody has found or used yet, but relevant right now?
 
 Teach the system how people use the app (patterns)?
   → IntentDonationManager (donate UI interactions)
+
+Entity is a parameter of a tool intent (27.3+)?
+  → IndexedEntity first; EnumerableEntityQuery for a small bounded set
+  → never a "search" tool: Siri finds the entity and passes it in
+```
+
+### How should Siri reach this action? (27.3+)
+
+```
+Fits a schema in a primary Siri domain (messages, mail, notes, calendar, photos, ...)?
+  → @AppIntent(schema:) only
+
+Fits a schema in a Shortcuts-only domain (books, browser, journal, presentation, reader, spreadsheet, whiteboard, wordProcessor)?
+  → @AppIntent(.tool, schema:)
+
+Custom action a person would ask for in one sentence?
+  → @AppIntent(.tool), with title + description + parameter descriptions written for the model
+
+Several tools must be combined, or the request needs app-specific context?
+  → an app skill in Skills.skillsbundle, on top of tools that already work alone
+
+Exact phrase from Spotlight / Action button / Shortcuts?
+  → AppShortcut (still needed, but unavailable to Siri once the app has any tool)
+
+Widget configuration, snippet intent, helper step, needs a specific screen?
+  → not a tool
 ```
 
 ### Which property wrapper should I use on entity fields?
@@ -232,10 +284,10 @@ Internal to the entity, not shown anywhere?
 
 ## Core Instructions
 
-- Target iOS 16+ / macOS 13+ minimum for App Intents. `IndexedEntity`, `OpenIntent`, focus filters, and control widgets require iOS 16+; `@AssistantEntity` / `@AssistantIntent` schemas require iOS 18.2+; anchored relative date styles and many assistant schemas require iOS 18.4+. The **27 releases** (WWDC 2026, iOS 27 / macOS 27) add `LongRunningIntent`, `EntityCollection`, `SyncableEntity`, `RelevantEntities`, `IndexedEntityQuery`, `OwnershipProvidingEntity`, `allowedExecutionTargets`, the `AppIntentsTesting` framework, and native `Duration`/`PersonNameComponents` parameters; `CancellableIntent` and `IntentValueRepresentation` are iOS 26.4+; `supportedModes` is iOS 26+. Apple's own naming for the WWDC 2026 cohort is "the 27 releases" - use that, not "iOS 19".
+- Target iOS 16+ / macOS 13+ minimum for App Intents. `IndexedEntity`, `OpenIntent`, focus filters, and control widgets require iOS 16+; `@AssistantEntity` / `@AssistantIntent` schemas require iOS 18.2+; anchored relative date styles and many assistant schemas require iOS 18.4+. The **27 releases** (WWDC 2026, iOS 27 / macOS 27) add `LongRunningIntent`, `EntityCollection`, `SyncableEntity`, `RelevantEntities`, `IndexedEntityQuery`, `OwnershipProvidingEntity`, `allowedExecutionTargets`, the `AppIntentsTesting` framework, and native `Duration`/`PersonNameComponents` parameters; `CancellableIntent` and `IntentValueRepresentation` are iOS 26.4+; `supportedModes` is iOS 26+. Apple's own naming for the WWDC 2026 cohort is "the 27 releases" - use that, not "iOS 19". The **Siri AI Developer Preview (27.3)** adds `ToolIntent` / `@AppIntent(.tool)`, `GenerableEntity` / `@AppEntity(.generable)`, property `description:` / `visibility:`, `SnippetRepresentableEntity` + `CardSnippet`, app skills (`Skills.skillsbundle`), `sirimetadataanalyzer`, and the `SiriEvaluations` framework. Tools and generable entities are unavailable on watchOS and tvOS, work only in development builds and internal TestFlight during the preview, and the API may still change.
 - **Never** make a SwiftData `@Model` class or other reference-type data model conform to `AppEntity`. `AppEntity` requires `Sendable`; `@Model` classes are not sendable. Create a separate `struct` entity that shadows the fields you want to expose.
 - **Never** pass `ModelContext` across actor boundaries. `ModelContext` is not sendable. Pass `ModelContainer` (which is sendable) and create a local context inside the actor that needs one.
-- **Never** expose an intent to Siri/Spotlight only by writing its type, always register it through an `AppShortcutsProvider`. Types not registered there will not appear in Shortcuts, Siri suggestions, or the action button picker.
+- **Never** expose an intent to Siri/Spotlight only by writing its type, always register it through an `AppShortcutsProvider`. Types not registered there will not appear in Shortcuts, Siri suggestions, or the action button picker. (Tool intents on 27.3 are the exception for Siri AI only: Siri's model discovers `@AppIntent(.tool)` intents from their metadata, with no phrase. They still need an App Shortcut for Spotlight and the Action button.)
 - **Never** write a Siri activation phrase without interpolating `\(.applicationName)`. The App Intents macro rejects phrases without it at compile time, because phrases without the app name would collide with other apps' commands.
 - **Never** reach back into a SwiftUI `@Query` from inside an intent. `@Query` only works inside a `View`. Run a one-shot `FetchDescriptor` through a `ModelContext` instead, or route through a centralized data controller.
 - **Never** instantiate services, data stores, or authentication managers inside `perform()`. Inject them through `@Dependency` and register them once in `App.init()` with `AppDependencyManager.shared.add(dependency:)`.
@@ -268,6 +320,17 @@ Internal to the entity, not shown anywhere?
 - To carry structured types other apps understand (a coordinate, a contact, a name), add an `IntentValueRepresentation` via the `ValueRepresentation` builder to the entity's `transferRepresentation` - `FileRepresentation`/`DataRepresentation` only cover file formats. Use the key-path form (`ValueRepresentation(exporting: \.place)`) when the entity already stores the system type.
 - For on-screen awareness, pick the annotation by shape: `.userActivity` for one primary item, `.appEntityIdentifier(_:)` for one among a few, `.appEntityIdentifier(forSelectionType:)` on a `List`/collection for many (lazy), `.appEntityUIElements(_:)` for custom `Canvas`/`CALayer` drawing. Annotations on Notifications, Now Playing, and AlarmKit require a real `AppEntity` - `TransientAppEntity` has no persistent id and can't be used there. Add a `displayRepresentations` query method so Siri can resolve onscreen entities without a full DB fetch.
 - Donate **UI** interactions with `IntentDonationManager` (the system already donates Siri/Shortcuts runs); donate after the action completes, don't over-donate (the system will start ignoring you), and delete stale donations.
+- **Siri AI (27.3):** expose a custom action to Siri's model with `@AppIntent(.tool)`. The model decides when to call a tool and how to fill it from the intent's `title`, `description` (plus `searchKeywords`), and each parameter's `title` and `description` - there is no separate tool name or model-only description, so never invent one. Write them for someone who has never seen the app, with formats, units, and what an empty optional means.
+- **Never** add `.tool` to an intent that conforms to a primary-domain schema (`.messages.sendMessage`, ...) - it is a build error and Siri already handles it. Only Shortcuts-only schema domains combine with `.tool`, as `@AppIntent(.tool, schema:)`.
+- **Never** write "search" or "find" tools. Siri finds entities itself through Spotlight (`IndexedEntity`, preferred) or `EnumerableEntityQuery` and passes them as parameters. For tools Siri does not use `suggestedEntities()`, `EntityStringQuery`, or `EntityPropertyQuery`.
+- A tool is callable whenever Siri can reach the app, possibly with no UI and no running app. Never make an intent a tool if it depends on a particular screen or in-memory state; persist every change; keep the existing `requestConfirmation` on destructive tools (validate, then confirm, then mutate).
+- Tool results and errors are read by the model. Return an entity (the fresh one after a mutation) so Siri can describe or chain it, and throw `CustomLocalizedStringResourceConvertible` errors that say what went wrong and what would fix it. Validate every model-supplied value in `perform()`.
+- Adding any tool intent makes the app's App Shortcuts unavailable to Siri (they still work in Spotlight, the Action button, and Shortcuts). Keep them, and make sure the tools cover what the phrases did.
+- Use `@AppEntity(.generable)` only for transient values a tool acts on that the model can write from the request. Every property needs a precise `description:`; an app-owned entity inside a generable entity is a build error that stops all metadata export - make it a separate intent parameter.
+- Give every `@Property` / `@ComputedProperty` / `@DeferredProperty` of an entity Siri sees a `description:`, hide sensitive ones with `visibility: .internal` (never together with an indexing key), and gate reading aloud with `authenticationPolicy:`.
+- For an existing intent or entity that ships below 27.3, add `ToolIntent` / `GenerableEntity` in an `@available(iOS 27.3, macOS 27.3, visionOS 27.3, *)` extension instead of marking the type; wrap in `#if !os(watchOS) && !os(tvOS)` where those platforms build.
+- An app skill (`Skills.skillsbundle/Skills/<name>/SKILL.md`) is read by Siri's model on the device, not by you. `name` must match the directory, only `name` + `description` frontmatter is supported, and one error disables every skill in the app. Refer to tools by title in natural language, never by Swift type name. Write skills for task context and multi-tool orchestration, never to explain a single tool.
+- After every tool or metadata change: build, run `xcrun sirimetadataanalyzer <built .app>`, fix the findings in source metadata, then test with Siri on a device. Cover tool choice, parameters, and skills with `SiriEvaluations` scenarios.
 - Test with the `AppIntentsTesting` framework (out-of-process, in an XCUITest bundle) for the integration surface - intents, queries, `spotlightQuery()`, `viewAnnotations()`; use test-only intents (`isDiscoverable = false` + `#if DEBUG`) to seed data and reach internal state. Keep direct `perform()` struct tests for pure logic.
 
 
@@ -334,6 +397,10 @@ End of example.
 - `references/spotlight.md` - `IndexedEntity`, `IndexedEntityQuery` (reindexing), `CSSearchableIndex`, `attributeSet`, semantic index, index-on-launch vs index-on-change, debounced reindexing.
 - `references/assistant-schemas.md` - `@AssistantEntity`, `@AssistantIntent`, schema adoption, multi-schema requirements, `.system.searchInApp`, Visual Intelligence (iPad/macOS, system stores), Xcode code snippets, caveats.
 - `references/siri-intelligence.md` - the Siri / Apple Intelligence integration model: finding content (semantic index / structured search / in-app search), custom responses, interaction donations, confirmation + `OwnershipProvidingEntity`, validation flow.
+- `references/siri-ai-tools.md` - Siri AI Developer Preview (27.3): `@AppIntent(.tool)` / `ToolIntent`, metadata the model reads, results and errors, finding entity parameters, `@AppIntent(.tool, schema:)`, App Shortcuts interaction, trait syntax, gating below 27.3, adoption order.
+- `references/siri-ai-entities.md` - property `description:` / `authenticationPolicy:` / `visibility:`, `@AppEntity(.generable)` / `GenerableEntity`, `SnippetRepresentableEntity` + `CardSnippet`.
+- `references/app-skills.md` - `Skills.skillsbundle`: when a skill is worth writing, bundle layout, `SKILL.md` frontmatter and body rules, diagnostics, `.skillsc` build-output check.
+- `references/siri-evaluations.md` - `sirimetadataanalyzer` (options, rule ids, workflow) and the `SiriEvaluations` framework (scenarios, expectations, metrics, running, reading failures).
 - `references/onscreen-awareness.md` - the 4 on-screen annotation APIs, content transfer (`IntentValueRepresentation`, resolve vs import), `displayRepresentations` fast path, entity annotations on Notifications / Now Playing / AlarmKit.
 - `references/long-running-and-execution.md` - the 30-second budget, `LongRunningIntent` + `performBackgroundTask`, `CancellableIntent`, background GPU, `allowedExecutionTargets`.
 - `references/testing-intents.md` - the `AppIntentsTesting` framework (out-of-process integration), direct `perform()` unit tests, mocking `@Dependency` via `AppDependencyManager`, test-only intents, what you can't unit-test.

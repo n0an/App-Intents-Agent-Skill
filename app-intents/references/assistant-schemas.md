@@ -19,8 +19,11 @@ Domains shipped so far:
 - `.mail` - compose, reply, search (`sendMessage` pairs with `draftMessage` - see "A schema can require its siblings" below)
 - `.messages` - send / draft messages
 - `.photos` - assets, albums, persons
-- `.presentations` - slides, decks
-- `.spreadsheets` - cells, ranges, templates
+- `.presentation` - slides, decks
+- `.reader` - document viewing
+- `.spreadsheet` - cells, ranges, templates
+- `.whiteboard` - boards and their items
+- `.wordProcessor` - document editing
 - `.system` - search (`.system.searchInApp`), share, print, `.system.open`
 - `.systemSearch` - search queries and suggestions
 - `.visualIntelligence` - semantic content search
@@ -29,6 +32,13 @@ Domains shipped so far:
 The autocomplete-driven snippets (below) are the authoritative list - Apple adds domains and schemas in minor OS releases. In the code-along workflow, you type the domain prefix (`calendar_`, `photos_`, ...) and Xcode offers every schema in that domain.
 
 Adopt the most specific domain that matches your app. A reading app uses `.books`; a markdown-notes app uses `.journal`; a scanner app uses `.files` + `.photos`.
+
+Domains come in two tiers, and the tier matters on 27.3:
+
+- **Primary (Apple Intelligence + Siri):** audio, calendar, camera, clock, mail, maps, messages, notes, phone, photos, reminders, system and in-app search. Conforming types are discoverable by Siri.
+- **Shortcuts-only:** books, browser, journal, presentation, reader, spreadsheet, whiteboard, wordProcessor. Conforming types appear in the Shortcuts app but Siri does not use them on its own.
+
+(Apple's web documentation and the Xcode 27.3 guidance disagree on `files` and `video`. Trust the compiler.) A Shortcuts-only schema intent reaches Siri by also becoming a tool - see "Schema intents as Siri AI tools" below.
 
 ## Adopting a schema
 
@@ -178,6 +188,30 @@ The schema dictates:
 - Which intent subprotocol to conform to (`OpenIntent` for `.photos.openAsset`, `DeleteIntent` for `.photos.deleteAssets`, `ShowInAppSearchResultsIntent` for `.photos.search`, ...).
 
 `@AppIntent(schema:)` is the modern syntax; `@AssistantIntent(schema:)` works too and is equivalent. New code should use `@AppIntent(schema:)`.
+
+## Schema intents as Siri AI tools (27.3)
+
+With the Siri AI Developer Preview, a schema intent in a **Shortcuts-only** domain can also be a tool Siri's model calls. Add the `.tool` trait to the schema macro:
+
+```swift
+@AppIntent(.tool, schema: .journal.createEntry)
+struct CreateEntryIntent {
+    var title: String?
+    var message: AttributedString
+    // ... the schema still dictates parameters and the returned entity
+}
+```
+
+It does everything `@AppIntent(schema:)` does and adds a `ToolIntent` conformance. It does not relax the schema's contract.
+
+**Never add `.tool` to a primary-domain schema intent.** `.messages.sendMessage`, `.mail.*`, `.notes.*`, `.photos.*` and the other primary domains are already handled by Siri, and combining them with `ToolIntent` is a build error whether written as the macro, an inline conformance, or an extension:
+
+```
+error: 'ToolIntent' can't be adopted by an intent that conforms to
+'.messages.sendMessage' because the schema is in a primary domain
+```
+
+Actions that fit no schema at all become plain `@AppIntent(.tool)` intents. See `siri-ai-tools.md`.
 
 ## A schema can require its siblings (Xcode enforces it)
 
@@ -513,8 +547,8 @@ Categories (not exhaustive):
 - `.journal.*` - entry, entryLocation, createEntry, updateEntry, searchEntries
 - `.mail.*` - message, account, composition
 - `.photos.*` - asset, assetType, album, person, createAssets, openAsset, updateAsset, deleteAssets, search
-- `.presentations.*` - slide deck, slide
-- `.spreadsheets.*` - sheet, cell, range, template
+- `.presentation.*` - slide deck, slide
+- `.spreadsheet.*` - sheet, cell, range, template
 - `.systemSearch.*` - search query, search suggestion
 - `.visualIntelligence.*` - semanticContentSearch (for visual intelligence integration)
 
@@ -532,7 +566,7 @@ In practice, as of early 2026 the feature surfaces consuming assistant schemas a
 
 ## When NOT to adopt
 
-- Your data is genuinely novel and doesn't fit any schema. Don't bend your model to match; stick with plain `AppEntity`.
+- Your data is genuinely novel and doesn't fit any schema. Don't bend your model to match; stick with plain `AppEntity`. On 27.3 this no longer means giving up Siri: expose the custom action with `@AppIntent(.tool)` (see `siri-ai-tools.md`).
 - The schema forces losing fidelity (e.g., you have rich markdown and the schema insists on `AttributedString` which loses your extensions). Weigh the integration benefit against the modeling cost.
 - You're still on iOS 17 or earlier - assistant schemas require 18.2+.
 

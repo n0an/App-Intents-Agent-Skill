@@ -1,6 +1,6 @@
 # Anti-patterns: common App Intents mistakes
 
-App Intents has evolved quickly across iOS 16, 17, and 18. Most LLM training data predates the modern shape of the framework, so models often generate code from older patterns (SiriKit, pre-Swift-6 SwiftData, NSUserActivity). These are the mistakes to catch.
+App Intents has evolved quickly across iOS 16, 17, 18, 26, and 27. Most LLM training data predates the modern shape of the framework, so models often generate code from older patterns (SiriKit, pre-Swift-6 SwiftData, NSUserActivity). These are the mistakes to catch. The Siri AI Developer Preview (27.3) entries are grouped at the end.
 
 ## SwiftData `@Model` conforming to `AppEntity`
 
@@ -883,3 +883,206 @@ func routesDidChange() async {
 ```
 
 `indexAppEntities` only adds / updates, so a full resync without the `deleteAppEntities(ofType:)` step leaves renamed or deleted items searchable. For large sets prefer per-entity updates and `deleteAppEntities(identifiedBy:ofType:)` (see `spotlight.md`); on iOS 27+ also adopt `IndexedEntityQuery` so the system can ask you to rebuild the index.
+
+## Siri AI (27.3): writing a "search" tool
+
+Siri finds entities on its own through Spotlight and entity queries, then passes them to tools. A search tool duplicates that and competes with it.
+
+```swift
+// WRONG - a tool that takes criteria and returns entities
+@AppIntent(.tool)
+struct SearchRecipes {
+    @Parameter(title: "Query") var query: String
+    func perform() async throws -> some ReturnsValue<[RecipeEntity]> { ... }
+}
+
+// CORRECT - make the entity findable, and write tools that act on it
+struct RecipeEntity: AppEntity, IndexedEntity { ... }
+
+@AppIntent(.tool)
+struct AddRecipeIngredients {
+    @Parameter(title: "Recipe", description: "The recipe whose ingredients to add")
+    var recipe: RecipeEntity
+    ...
+}
+```
+
+The same goes for a generable "search criteria" entity. Read-only tools that return the app's data (a plan, a list, match history) are fine and useful.
+
+## Siri AI (27.3): `.tool` with no usable metadata
+
+Adding the trait without fixing the text makes the tool invisible to the model, or gets it called for the wrong requests.
+
+```swift
+// WRONG
+@AppIntent(.tool)
+struct Run {
+    static let title: LocalizedStringResource = "Run"
+    @Parameter(title: "Value") var value: String
+    ...
+}
+
+// CORRECT
+@AppIntent(.tool)
+struct PlanMeal {
+    static let title: LocalizedStringResource = "Plan Meal"
+    static let description = IntentDescription(
+        "Puts a recipe on the meal plan for breakfast, lunch, or dinner on a specific day.",
+        searchKeywords: ["schedule", "menu", "cook"]
+    )
+    @Parameter(title: "Date", description: "The day to plan the meal for, in the person's local time zone")
+    var date: Date
+    ...
+}
+```
+
+There is no model-only description or tool name to add. Do not invent a `toolDefinition`, `toolDescription`, or similar property.
+
+## Siri AI (27.3): `.tool` on a primary-domain schema intent
+
+```swift
+// WRONG - build error: the schema is in a primary domain
+@AppIntent(.tool, schema: .messages.sendMessage)
+struct SendMessageIntent { ... }
+
+// CORRECT - the schema already makes it available to Siri
+@AppIntent(schema: .messages.sendMessage)
+struct SendMessageIntent { ... }
+```
+
+`.tool` combines only with Shortcuts-only schema domains (`.journal.createEntry`, `.books.openBook`, ...). Writing `: ToolIntent` inline or in an extension produces the same error.
+
+## Siri AI (27.3): a tool that depends on UI state
+
+A tool cannot be enabled or disabled, and Siri can launch the process with no UI. A tool that reads the "currently open document" from a view model, or assumes a screen is showing, fails for most requests.
+
+```swift
+// WRONG - only works while the editor screen is open
+func perform() async throws -> some IntentResult {
+    guard let doc = EditorViewModel.shared.currentDocument else { return .result() }   // silently does nothing
+    ...
+}
+
+// CORRECT - take the entity as a parameter, write to the persisted store
+@Parameter(title: "Document", description: "The document to export")
+var document: DocumentEntity
+```
+
+Onscreen context ("this document") still works: annotate the view and Siri fills the parameter (see `onscreen-awareness.md`). Changes must reach the persisted store, because the process can exit right after `perform()`.
+
+## Siri AI (27.3): returning nothing and throwing generic errors
+
+The model reads both. A bare `.result()` gives it nothing to describe or chain, and a plain `Error` carries no message.
+
+```swift
+// WRONG
+func perform() async throws -> some IntentResult {
+    guard result.scores.count > 1 else { throw NSError(domain: "app", code: 1) }
+    ...
+    return .result()
+}
+
+// CORRECT - an actionable message, and the updated entity as the value
+struct GameError: Error, CustomLocalizedStringResourceConvertible {
+    var localizedStringResource: LocalizedStringResource
+}
+
+func perform() async throws -> some ReturnsValue<GameEntity> {
+    guard result.scores.count > 1 else {
+        throw GameError(localizedStringResource: "A match needs at least two players. Ask who else played.")
+    }
+    ...
+    return .result(value: GameEntity(game.model))   // rebuilt after the mutation, not the stale parameter
+}
+```
+
+## Siri AI (27.3): trusting model-written values
+
+For a generable parameter no query runs, and for any parameter the value came from a language model. Validate before writing.
+
+```swift
+// WRONG - saves whatever arrived
+try store.createRecipe(name: draft.name, minutes: draft.minutes, ingredients: draft.ingredients)
+
+// CORRECT
+guard !draft.ingredients.isEmpty else { throw LarderError.emptyIngredients }
+guard draft.minutes > 0 else { throw LarderError.invalidCookTime }
+```
+
+## Siri AI (27.3): making a stored entity generable
+
+`.generable` means "the model invents this value". On an app-owned entity that produces objects that do not exist in the app. Putting an app-owned entity *inside* a generable entity is a build error, and while it stands no App Intents metadata is exported for the target at all.
+
+```swift
+// WRONG - 'course' is app-owned; the model cannot author it
+@AppEntity(.generable)
+struct StudyPlan {
+    @Property(title: "Course") var course: CourseEntity
+    @Property(title: "Sessions", description: "The sessions to do each day, in order") var sessions: [StudySession]
+}
+
+// CORRECT - the stored entity is its own intent parameter
+@AppIntent(.tool)
+struct SetStudyPlan {
+    @Parameter(title: "Plan", description: "The new daily plan, as practice sessions") var plan: StudyPlan
+    @Parameter(title: "Course", description: "The course whose plan to replace") var course: CourseEntity
+    ...
+}
+```
+
+Do not make `CourseEntity` generable to silence the error.
+
+## Siri AI (27.3): `@available` on an intent that already ships
+
+```swift
+// WRONG - removes the intent from Shortcuts, Spotlight, and App Shortcuts below 27.3
+@available(iOS 27.3, *)
+@AppIntent(.tool)
+struct AddToCart { ... }          // this intent shipped in iOS 17
+
+// CORRECT - leave the type alone, gate only the conformance
+struct AddToCart: AppIntent { ... }
+
+@available(iOS 27.3, macOS 27.3, visionOS 27.3, *)
+extension AddToCart: ToolIntent {}
+```
+
+Do not drop the feature for an older deployment target either. `ToolIntent` and `GenerableEntity` do not exist on watchOS or tvOS, so wrap the extension in `#if !os(watchOS) && !os(tvOS)` for targets that build there. The 27.3 property arguments (`description:`, `visibility:`) cannot be gated on a stored property: on an entity that ships earlier, see the fallback in `siri-ai-entities.md`.
+
+## Siri AI (27.3): deleting App Shortcuts after adding tools
+
+Adding any tool intent makes the app's App Shortcuts unavailable **to Siri**, which can look like they stopped being useful. They still drive Spotlight, the Action button, and the Shortcuts app. Keep the `AppShortcutsProvider`, and check the tools cover what the phrases did by voice.
+
+## Siri AI (27.3): app skill mistakes
+
+A `Skills.skillsbundle` fails quietly. The build checks format only.
+
+```markdown
+<!-- WRONG -->
+---
+name: Meal_Planning                         <!-- must be kebab-case and match the directory -->
+description: Plan meals: breakfast or dinner   <!-- unquoted ": " is a YAML error -->
+license: MIT                                <!-- unsupported field -->
+---
+Call PlanMealIntent with the recipe.        <!-- Swift type name -->
+See references/tools.md for details.        <!-- other files do not ship -->
+
+<!-- CORRECT -->
+---
+name: meal-planning
+description: Put a recipe on the meal plan for a specific day and meal. Use when the user asks to plan, schedule, or put something on the menu. Not for adding single items to a shopping list.
+---
+Before planning, use the Get Meal Plan tool for that day. If a different recipe is
+already planned for that meal, tell the user and ask before replacing it.
+```
+
+- **One error disables every skill in the app**, not only the broken one.
+- A bundle missing from Copy Bundle Resources is not compiled and Xcode says nothing. Check for `Metadata.appintents/Skills.skillsc` in the built app.
+- Xcode's Skills Bundle template leaves a `sample-skill` placeholder. Untouched, it builds and ships as a real skill. Renaming the folder without updating `name:` (or the reverse) is a build error.
+- A skill that mostly explains one tool's arguments means the tool is badly shaped. Fix the tool.
+- A skill is guidance, not enforcement. Validation and confirmation belong in `perform()`.
+- Writing the app's `SKILL.md` as a coding-agent skill, or following its instructions yourself. Siri's model reads it at runtime.
+
+## Siri AI (27.3): treating a clean analyzer run as proof
+
+`sirimetadataanalyzer` checks the shape of built metadata. It reads build output, so after a failed build it reports the previous build's findings. It does not catch overlapping tools, vague skill descriptions, or whether Siri actually picks the tool. Follow it with `SiriEvaluations` scenarios and on-device requests, and run those more than once: Siri's answers vary between runs (see `siri-evaluations.md`).

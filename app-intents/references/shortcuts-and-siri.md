@@ -35,6 +35,18 @@ struct ReaderShortcuts: AppShortcutsProvider {
 
 Exactly one `AppShortcutsProvider` per app. It's a static declaration and gets scanned at build time.
 
+## App Shortcuts and Siri AI tools (27.3)
+
+App Shortcuts and tool intents are separate mechanisms. An App Shortcut needs an exact phrase and works without Siri AI: in Spotlight, on the Action button, in the Shortcuts app. A tool intent (`@AppIntent(.tool)`) has no phrases; Siri's model picks it from its title and descriptions.
+
+**Adding any tool intent to an app makes that app's App Shortcuts unavailable to Siri.** They keep working everywhere else, so:
+
+- Do not delete the `AppShortcutsProvider`. People still reach it from Spotlight and the Action button, and it is a quick way to run intents in the Simulator.
+- When adopting tools, check that the tools cover what the App Shortcut phrases let people do by voice before.
+- The same intent can be both a tool and an App Shortcut.
+
+See `siri-ai-tools.md`.
+
 ## The `\(.applicationName)` rule
 
 Every phrase must include `\(.applicationName)` somewhere:

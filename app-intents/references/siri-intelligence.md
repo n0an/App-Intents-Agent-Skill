@@ -11,6 +11,9 @@ This file is the map of that integration layer. The mechanics live in neighbouri
 - Schema adoption (`@AppEntity(schema:)`, `@AppIntent(schema:)`, domains, Xcode snippets) → `assistant-schemas.md`.
 - Onscreen awareness and content transfer → `onscreen-awareness.md`.
 - Testing → `testing-intents.md`.
+- **Custom actions and content (Siri AI Developer Preview, 27.3)** → `siri-ai-tools.md`, `siri-ai-entities.md`, `app-skills.md`, `siri-evaluations.md`.
+
+> **27.3 changes the picture.** Through 27.2 Siri could only act on functionality that fit a system schema (or an exact App Shortcut phrase). The Siri AI Developer Preview lets Siri's model call **any custom intent** marked `@AppIntent(.tool)`, write parameter values itself (`@AppEntity(.generable)`), follow app-provided guidance (`Skills.skillsbundle`), and show your own entity cards (`CardSnippet`). Everything below still applies - indexing, onscreen context, transferable entities, donations, and confirmation are what tools build on.
 
 ## The shape of it
 
@@ -23,11 +26,16 @@ AppEntity            → describes your content
   + AppSchema        → Siri understands what category it is
 AppIntent            → exposes an action to the whole system
   + AppSchema        → Siri can execute the action from speech
+  + .tool (27.3)     → Siri's model can call a custom action that fits no schema
 ```
+
+Schema first, tool second: if an action fits a schema in a primary Siri domain, adopt the schema and do **not** add `.tool` (build error). Everything else a person would ask Siri for becomes a tool. See `siri-ai-tools.md`.
 
 ## Finding content: three paths
 
 Before Siri can act on content, it has to *find* it. Pick per entity type - you can mix them across your app.
+
+For **tool intent parameters** (27.3) the rule is narrower: Siri finds the entity through Spotlight (`IndexedEntity`, path 1) or an `EnumerableEntityQuery` for a small bounded set, then passes it to the tool. Do not write a search tool, and do not rely on `suggestedEntities()` or `EntityStringQuery` for tools. See `siri-ai-tools.md`.
 
 ### 1. Semantic index (preferred): `IndexedEntity`
 
@@ -104,7 +112,8 @@ By default Siri composes its own response. You customise it for personality and 
 - **Let Siri handle it.** Return an empty `IntentResult` and Siri writes the response.
 - **Custom dialog.** Add `ProvidesDialog` and return an `IntentDialog(full:supporting:)`. Siri **reads the `full` string** on voice-only devices (AirPods, HomePod) and **shows the `supporting` string** with UI. The `full` string must stand on its own as spoken language. (See `fundamentals.md` for dialog and grammar agreement.)
 - **Clarifying questions mid-run.** Ask for a value before finishing with `$param.requestValue(...)` - e.g. ask the user to name a new timer when one is already running. Ask sparingly; every question is friction. (See `parameters.md`.)
-- **Visuals.** An entity's `DisplayRepresentation` (title + subtitle + image) is reused everywhere - responses, disambiguation between similar entities, answers to questions, Spotlight, Shortcuts, *and confirmation dialogs*. Invest in it once. For a fully custom result card, return `ShowsSnippetView` (see `open-and-snippet-intents.md`).
+- **Visuals.** An entity's `DisplayRepresentation` (title + subtitle + image) is reused everywhere - responses, disambiguation between similar entities, answers to questions, Spotlight, Shortcuts, *and confirmation dialogs*. Invest in it once. For a fully custom result card, return `ShowsSnippetView` (see `open-and-snippet-intents.md`). On 27.3, give the entity itself a card with `SnippetRepresentableEntity` + `CardSnippet` (see `siri-ai-entities.md`).
+- **Errors (27.3).** Siri's model reads what a tool throws and uses it to decide what to ask or do next. Throw `CustomLocalizedStringResourceConvertible` errors that say what would fix the problem.
 
 ## Interaction donations (`IntentDonationManager`)
 
@@ -173,9 +182,11 @@ Treat these build errors as a checklist for a complete integration, not an obsta
 Test in this order - cheap and isolated first, full system last:
 
 1. **`AppIntentsTesting`** - exercise intents, entities, and queries out-of-process with no Siri involved. Fastest, most reliable; runs in CI. See `testing-intents.md`.
-2. **Shortcuts app** - validate the *shape* of each intent: parameters, inputs, how it's presented.
-3. **Spotlight** - confirm entities are indexed, discoverable, and linkable, so Siri can find the right data before acting.
-4. **Siri** - the full end-to-end: natural language, entity resolution, onscreen context, cross-app workflows. Test on device.
+2. **Siri Metadata Analyzer (27.3)** - `xcrun sirimetadataanalyzer <built .app>` after every tool or metadata change. See `siri-evaluations.md`.
+3. **Shortcuts app** - validate the *shape* of each intent: parameters, inputs, how it's presented.
+4. **Spotlight** - confirm entities are indexed, discoverable, and linkable, so Siri can find the right data before acting.
+5. **Siri Evaluations (27.3)** - scripted conversations through real Siri on a device, graded on which tools were called, with which parameters, and which skills loaded. See `siri-evaluations.md`.
+6. **Siri** - the full end-to-end: natural language, entity resolution, onscreen context, cross-app workflows. Test on device.
 
 ## Getting started checklist
 
@@ -186,4 +197,5 @@ Test in this order - cheap and isolated first, full system last:
 5. Annotate views and system integrations with entities for context.
 6. Add `OwnershipProvidingEntity` to shareable entities so confirmations are right.
 7. Donate UI interactions once the fundamentals work.
-8. Test early with `AppIntentsTesting`, then Shortcuts → Spotlight → Siri.
+8. On 27.3, mark custom actions `@AppIntent(.tool)`, describe every parameter and entity property, and add app skills only where tools need orchestration (see `siri-ai-tools.md`).
+9. Test early with `AppIntentsTesting`, then the metadata analyzer → Shortcuts → Spotlight → Siri Evaluations → Siri.

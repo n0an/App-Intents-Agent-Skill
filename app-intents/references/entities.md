@@ -117,6 +117,8 @@ The `@Property` wrapper is what lets you:
 
 The title defaults to the variable name; supply `@Property(title: "Region")` to customize.
 
+On 27.3, `@Property`, `@ComputedProperty`, and `@DeferredProperty` also take `description:` (what Siri's model reads to understand or write the value), `authenticationPolicy:` (require unlock before Siri reads it aloud), and `visibility: .internal` (keep it from Siri, Shortcuts, and the model). Describe the properties of every entity a tool takes or returns. See `siri-ai-entities.md`.
+
 ### `@ComputedProperty` - exposed computed property
 
 Map a computed property onto the exposed surface:
@@ -217,6 +219,8 @@ struct ActivityStatisticsSummary: TransientAppEntity {
 No `id`, no `defaultQuery` - Shortcuts won't try to enumerate or look them up. But `@Property` still applies, so downstream actions in a shortcut can chain `distanceTraveled` or `caloriesBurned` as typed inputs.
 
 Use `TransientAppEntity` for return data that's computed on the fly and exists only for that intent invocation.
+
+On 27.3 a transient entity can also flow the other way: mark it `@AppEntity(.generable)` and Siri's model **writes** the value from the conversation and passes it to a tool, with no query involved (a draft, a score sheet, a plan). See `siri-ai-entities.md`.
 
 ## File-backed entities: `FileEntity`
 
@@ -364,6 +368,8 @@ var displayRepresentation: DisplayRepresentation {
     )
 }
 ```
+
+Siri's model reads the display representation to tell results apart, pick one, or ask the person which they meant. Make the title name the thing and the subtitle distinguish similar ones (`"Market Street"` / `"San Francisco"`), and never show a UUID or row id. To replace it with your own SwiftUI card in Siri responses, conform to `SnippetRepresentableEntity` (27.3, see `siri-ai-entities.md`); the display representation remains the fallback.
 
 ### Thumbnail images
 

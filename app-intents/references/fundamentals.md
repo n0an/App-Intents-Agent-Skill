@@ -45,6 +45,7 @@ struct RefreshFeedIntent: AppIntent {
 ```
 
 - `description: IntentDescription` - the long-form blurb shown in Shortcuts under the action title. Accepts optional `categoryName:` (Shortcuts library category), `searchKeywords:` (extra search tokens Shortcuts matches against), and `resultValueName:` (the label used when the output of this intent is bound into another action, e.g., "Articles" in "Use Articles from Refresh Feed"). Include these whenever the intent returns a chainable value.
+- On 27.3, `title`, `description`, and `searchKeywords` are also **the text Siri's model reads** to decide whether to call an intent marked `@AppIntent(.tool)`. There is no separate model-facing description. Write the description as what the action does and affects, for someone who has never seen the app. See `siri-ai-tools.md`.
 - `isDiscoverable` - when `false`, the intent is invisible in the Shortcuts library and Siri suggestions. Use for helper intents that only exist to back a widget button, a snippet button, or another intent. Keeps the user-facing library clean.
 - `openAppWhenRun` - opens the app after `perform()` finishes. Prefer `OpenIntent` for user-visible navigation; reach for this only when the opening is a side-effect of a larger action.
 
@@ -340,6 +341,8 @@ throw $folder.needsValueError("Which folder should this go in?")
 ```
 
 For general failures, throw a plain `Error` conforming to `CustomLocalizedStringResourceConvertible` so the dialog is localizable.
+
+For a tool intent (27.3) the error message is also input to Siri's model: it reads the message and decides whether to ask the person for something or try another step. Only `CustomLocalizedStringResourceConvertible` errors carry a message. Write what went wrong and what would fix it ("A match needs at least two players. Ask who else played."), never a generic "Operation failed".
 
 ## Scope: what an intent should do
 

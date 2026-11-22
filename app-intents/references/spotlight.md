@@ -111,6 +111,8 @@ Apple's explicit recommendation (WWDC24) is to perform the initial index inside 
 
 As of the 27 releases, indexing into Spotlight is the **primary way Siri retrieves your content** - and depending on the App Intents domain, it provides **semantic search**: Siri matches on *meaning*, not just keywords ("messages about movies" finds messages mentioning film titles), understands relationships between entities, and can answer questions over your content. Adopt `IndexedEntity` and keep the index current; that's what unlocks the best Siri experience. For content you can't index ahead of time (large, server-side, or volatile), fall back to `IntentValueQuery` - see `siri-intelligence.md`. The same index is also queryable by on-device LLMs: once indexed, your content can be searched through `SpotlightSearchTool` in the Foundation Models framework (WWDC 2026 Session 246), which is a Foundation Models topic rather than an App Intents one.
 
+For **tool intents** (27.3) `IndexedEntity` is the preferred way for Siri to find an entity parameter: the lookup does not launch the app and works even when the request does not name the app. Reindex right after a tool creates or renames an entity, or Siri cannot find it in the next request. See `siri-ai-tools.md`.
+
 ## Supporting reindexing: `IndexedEntityQuery` (iOS 27+)
 
 Spotlight occasionally needs your app to **reindex** its content (the index hit a problem, or needs rebuilding). Conform your entity's query to `IndexedEntityQuery` - a refinement of `EntityQuery` for `IndexedEntity` types - and the system calls your reindex methods when needed:

@@ -7,6 +7,8 @@ There are two complementary layers:
 
 Use both: struct tests for pure logic you can run anywhere; `AppIntentsTesting` for the integration surface that only behaves correctly on-device.
 
+Neither layer tells you whether **Siri picks the intent**. For tool intents on 27.3, add the Siri Metadata Analyzer and the `SiriEvaluations` framework on top - see `siri-evaluations.md`.
+
 ## Unit-testing an intent
 
 Instantiate the intent, assign `@Parameter` values, call `perform()`:
@@ -285,6 +287,21 @@ XCTAssertEqual(updated.value.title, "Asteroid Dodgeball - Rules")
 
 When a parameter expects an entity (`CalendarEntity`) you can pass a plain string; the runtime calls that entity's `EntityStringQuery` and fills in the first match.
 
+### Test generable entities and confirmations (27.3)
+
+A generable entity is transient, so build one with `transientEntities` and pass it as the parameter. This is how you test that `perform()` validates a value the model wrote:
+
+```swift
+let eggs = definitions.transientEntities["IngredientDraft"].makeEntity(name: "eggs", amount: 3.0)
+let draft = definitions.transientEntities["RecipeDraft"].makeEntity(
+    name: "Sunday Omelette", minutes: 10, servings: 2, ingredients: [eggs]
+)
+let result = try await definitions.intents["CreateRecipeIntent"].makeIntent(draft: draft).run()
+XCTAssertEqual(try result.value.name, "Sunday Omelette")
+```
+
+Also cover the rejection path: a draft with an empty required array should make `run()` throw, and nothing should be saved. In practice a test of a tool that calls `requestConfirmation` runs through the confirmed path without a prompt. Apple does not document that behavior, so cover the declined path with Siri on a device.
+
 ### Test Spotlight indexing
 
 `spotlightQuery(_:)` queries the real Spotlight index, so you can guard against the classic "I commented out the indexing call and never noticed" regression:
@@ -351,6 +368,7 @@ The recommended progression: build the fundamental types → cover them with `Ap
 These require a device (or a specific test harness) and aren't amenable to direct `@Test` struct calls. Several are now reachable with `AppIntentsTesting` (above) instead:
 
 - **Siri phrase recognition.** Speech recognition is integrated with the OS. Use Xcode's App Shortcuts Preview tool (macOS Sonoma + Xcode 15+) to exercise phrase matching without voice; for voice, test on a real device.
+- **Which tool Siri's model picks and how it fills the parameters (27.3).** Not reachable from `AppIntentsTesting`, which calls the intent directly. Script it with `SiriEvaluations` on a physical device (`siri-evaluations.md`).
 - **Spotlight indexing.** Whether an entity *is* indexed is now testable with `AppIntentsTesting`'s `spotlightQuery(_:)` (on-device). *Ranking* within the semantic index is still opaque - there's no programmatic ranking API.
 - **View annotations / onscreen awareness.** Now testable with `AppIntentsTesting`'s `viewAnnotations()` - assert which entity the system reports on screen. (Phrase resolution against those annotations still needs Siri.)
 - **Snippet rendering as a system overlay.** Tests can verify the view is constructed; only the snippet host shows the overlay visually.

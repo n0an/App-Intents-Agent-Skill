@@ -3,7 +3,7 @@
 <p align="center">
     <img src="https://img.shields.io/badge/iOS-16+-2980b9.svg" alt="iOS 16+" />
     <img src="https://img.shields.io/badge/swift-5.9+-F05138.svg" alt="Swift 5.9+" />
-    <img src="https://img.shields.io/badge/version-1.3.0-blueviolet.svg" alt="Version 1.3.0" />
+    <img src="https://img.shields.io/badge/version-1.4.0-blueviolet.svg" alt="Version 1.4.0" />
     <img src="https://img.shields.io/badge/WWDC%202026-iOS%2027-FF2D55.svg" alt="Covers WWDC 2026 / iOS 27" />
     <img src="https://img.shields.io/badge/license-MIT-lightgrey.svg" alt="MIT License" />
     <a href="https://agentskills.io/home">
@@ -12,6 +12,8 @@
 </p>
 
 > **🍎 Updated for WWDC 2026** - now covers the iOS 27 App Intents APIs: long-running & cancellable intents, on-screen awareness, `EntityCollection`, `SyncableEntity`, and the `AppIntentsTesting` framework.
+>
+> **🗣️ Updated for the Siri AI Developer Preview (27.3)** - tool intents with `@AppIntent(.tool)`, generable entities, card snippets, app skills in a `Skills.skillsbundle`, the Siri Metadata Analyzer, and the `SiriEvaluations` framework.
 
 An agent skill that helps AI coding agents like Claude Code, Codex, Cursor, and Gemini write correct Swift App Intents code - exposing app actions and data to Siri, Shortcuts, Spotlight, widgets, Control Center, and Apple Intelligence.
 
@@ -37,10 +39,13 @@ It uses the [Agent Skills](https://agentskills.io/home) format, so it works smoo
 - **Widgets** - `WidgetCenter.reloadAllTimelines()` after intent writes, App Group sharing pattern for interactive widget state
 - **SwiftData** - `ModelContainer` vs `ModelContext` sendability, safe cross-actor patterns
 - **Siri + Apple Intelligence** - `@AppEntity` / `@AppIntent` / `@AppEnum` schema macros, 13+ domains (`.calendar.*`, `.messages.*`, `.photos.*`, `.journal.*`, `.mail.*`, `.browser.*`, `.visualIntelligence.*`, `.system.searchInApp`, ...), three content-discovery paths (semantic index / structured search / in-app search), multi-schema build errors + Xcode fix-its, custom Siri responses, interaction donations (`IntentDonationManager`), confirmation + ownership, **Use Model** action via `AttributedString` parameters
+- **Siri AI Developer Preview (27.3)** - `@AppIntent(.tool)` / `ToolIntent` for custom actions Siri's model calls, `@AppIntent(.tool, schema:)` for Shortcuts-only schema domains, writing titles and descriptions the model reads, results and errors as model input, `IndexedEntity` vs `EnumerableEntityQuery` for tool parameters (and why not to write search tools), `@AppEntity(.generable)` / `GenerableEntity`, property `description:` / `authenticationPolicy:` / `visibility: .internal`, `SnippetRepresentableEntity` + `CardSnippet`, gating below 27.3, how tools change App Shortcuts in Siri
+- **App skills** - `Skills.skillsbundle` layout, `SKILL.md` frontmatter and body rules, when a skill is worth writing, build diagnostics, the `.skillsc` build-output check
 - **On-screen awareness + content transfer** - the four annotation APIs (`.userActivity`, `.appEntityIdentifier`, collection `forSelectionType`, custom-canvas `.appEntityUIElements`), UIKit/AppKit equivalents, `displayRepresentations` fast path, entity annotations on User Notifications / Now Playing / AlarmKit
 - **Visual Intelligence** - `IntentValueQuery` + `SemanticContentDescriptor`, now on iOS / iPadOS / macOS, `@UnionValue` multi-type results, `semanticContentSearch` "More results", receiving data via system stores (EventKit / Contacts / HealthKit)
 - **Testing** - the new `AppIntentsTesting` framework (out-of-process integration: `IntentDefinitions`, `makeIntent`/`run()`, `entities(matching:)`, `spotlightQuery()`, `viewAnnotations()`, test-only intents), plus direct `perform()` struct tests, mocking `@Dependency`, Swift Testing patterns, what you can / can't unit-test
-- **Anti-patterns** - ~40 catches including `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `@Property`, `AppEntity` instead of `TransientAppEntity`, missing `Transferable`, duplicate `perform()` on `URLRepresentableIntent`, mutation / expensive work in `SnippetIntent.perform()`, resolving entities at scale instead of `EntityCollection`, `LongRunningIntent` without progress, plain `nil` checks instead of `valueState`, cross-process write conflicts, `TransientAppEntity` for annotations, over-donating interactions, and more
+- **Verifying Siri AI** - `xcrun sirimetadataanalyzer` (options, exit codes, `SMA` rule ids), and `SiriEvaluations` scenarios (`SiriScenario`, `UserTurn`, `Calls`, `Finds`, `OnScreen`, `Loads`, `SiriResponse`, metrics, reading a failed report)
+- **Anti-patterns** - 50+ catches including `@Model` as `AppEntity`, missing `\(.applicationName)`, `@Query` inside intents, unregistered intents, missing `@Property`, `AppEntity` instead of `TransientAppEntity`, missing `Transferable`, duplicate `perform()` on `URLRepresentableIntent`, mutation / expensive work in `SnippetIntent.perform()`, resolving entities at scale instead of `EntityCollection`, `LongRunningIntent` without progress, plain `nil` checks instead of `valueState`, cross-process write conflicts, `TransientAppEntity` for annotations, over-donating interactions, plus the Siri AI ones (search tools, `.tool` on a primary-domain schema, tools that depend on UI state, generic errors, generable stored entities, broken app skills), and more
 
 
 ## Installing
@@ -97,7 +102,7 @@ You can also trigger the skill using natural language:
 
 ## Why Use an Agent Skill for App Intents?
 
-App Intents is a fast-moving framework that has changed significantly across iOS 16, 17, 18, 26, and the 27 releases (WWDC 2026). Most LLM training data either predates App Intents entirely or reflects the older SiriKit approach. As a result, agents routinely generate code that:
+App Intents is a fast-moving framework that has changed significantly across iOS 16, 17, 18, 26, the 27 releases (WWDC 2026), and the Siri AI Developer Preview in 27.3. Most LLM training data either predates App Intents entirely or reflects the older SiriKit approach. As a result, agents routinely generate code that:
 
 - Tries to make a SwiftData `@Model` class conform to `AppEntity` - which no longer compiles under Swift 6 because `AppEntity` requires `Sendable`
 - Uses SwiftUI `@Query` inside an intent, which silently does nothing because intents aren't views
@@ -111,7 +116,7 @@ This skill:
 
 - **Catches anti-patterns** LLMs default to, like `@Model` entity conformance, bare `String(format:)` dialog, and unregistered intents
 - **Provides copy-pasteable patterns** for every intent kind (action, open, snippet, focus, control widget) with correct return types
-- **Covers newer APIs** like `IndexedEntity`, `OpenIntent`, `ShowsSnippetView`, `@AssistantEntity` / `@AssistantIntent` schemas, and the 27 releases additions (`LongRunningIntent`, `EntityCollection`, `SyncableEntity`, on-screen awareness, `AppIntentsTesting`)
+- **Covers newer APIs** like `IndexedEntity`, `OpenIntent`, `ShowsSnippetView`, `@AssistantEntity` / `@AssistantIntent` schemas, the 27 releases additions (`LongRunningIntent`, `EntityCollection`, `SyncableEntity`, on-screen awareness, `AppIntentsTesting`), and the 27.3 Siri AI additions (`ToolIntent`, `GenerableEntity`, `CardSnippet`, app skills, `SiriEvaluations`) that postdate every model's training data
 - **Enforces data-flow best practices** like `AppDependencyManager` injection, main-actor-bound data controllers, and `ModelContainer`-only cross-actor transfer
 
 

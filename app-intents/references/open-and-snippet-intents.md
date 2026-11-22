@@ -8,6 +8,8 @@ Three shapes for "bring a thing to the user":
 
 They can coexist; pick per use case.
 
+A fourth shape arrived with 27.3: a **card snippet** attached to the *entity* (`SnippetRepresentableEntity` + `CardSnippet`) rather than returned by an intent. The system shows it wherever Siri presents that entity. It is pre-rendered from static content and covered in `siri-ai-entities.md`. Everything in this file still works for tool intents: a tool can return `ShowsSnippetIntent` like any other intent.
+
 ## `OpenIntent`
 
 `OpenIntent` is a subprotocol of `AppIntent`. It requires a `target` parameter (the entity being opened) and automatically opens the app when the intent completes:
@@ -429,6 +431,7 @@ return .result(
 | User wants a value to chain in Shortcuts | `AppIntent & ReturnsValue<T>` |
 | Snippet *and* a chainable value | `AppIntent & ReturnsValue<T> & ShowsSnippetIntent` |
 | Simple confirmation ("Done") | `AppIntent & ProvidesDialog` |
+| The same branded card wherever Siri shows this entity (27.3) | `SnippetRepresentableEntity` + `CardSnippet` |
 
 For "show me my latest note" - a snippet is usually better, because the point is to read it, not to edit it. For "open my latest note so I can keep writing" - use `OpenIntent`.
 
